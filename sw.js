@@ -1,6 +1,6 @@
 ﻿// Gemmer appens egne filer, sÃ¥ appen kan Ã¥bnes uden internet. Altid nettet fÃ¸rst (sÃ¥ opdateringer kommer med det samme), ellers den gemte udgave.
 // Kald til serveren (script.google.com) gemmes aldrig.
-var CACHE = 'bilarkiv-app-v5';
+var CACHE = 'bilarkiv-app-v6';
 var FILES = ['./', 'index.html', 'app.css', 'config.js', 'manifest.webmanifest', 'js/util.js', 'js/ui.js', 'js/store.js', 'js/images.js', 'js/views-list.js', 'js/views-car.js', 'js/main.js', 'icons/logo-hvid.png', 'icons/icon-180.png', 'icons/icon-192.png'];
 
 self.addEventListener('install', function (e) {
