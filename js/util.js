@@ -174,14 +174,28 @@
     return r;
   };
 
+  /**
+   * Olivers tommelfingerregel: advar, hvis forventet avance FØR brugtmoms ("brutto") er under grænsen (20.000 kr).
+   * Den forventede avance efter brugtmoms vises ved siden af, men grænsen sammenlignes ikke med den. Samme regel som belowMinProfit i serverens Logic.gs.
+   * Giver 'bad' (underskud), 'warn' (under grænsen), 'ok' eller '' (ingen annonceret pris).
+   */
+  BA.profitLevel = function (r, st) {
+    if (r.sold || r.expected == null) return '';
+    var min = st && st.minProfit != null ? st.minProfit : BA.MAX_PROFIT_HINT;
+    if (r.expected < 0) return 'bad';
+    return r.expBefore < min ? 'warn' : 'ok';
+  };
+
   /** "Kan det betale sig?" – en kort dom ud fra forventet avance og grænsen i indstillingerne. */
   BA.verdict = function (r, st) {
     if (r.sold) return null;
     if (r.expected == null) return { cls: '', text: 'Skriv en annonceret pris for at se forventet avance.' };
     var min = st && st.minProfit != null ? st.minProfit : BA.MAX_PROFIT_HINT;
-    if (r.expected < 0) return { cls: 'bad', text: 'Bilen giver underskud ved den annoncerede pris (' + U.kr(r.expected) + ').' };
-    if (r.expected < min) return { cls: 'warn', text: 'Forventet avance er under ' + U.kr(min) + ' (' + U.kr(r.expected) + '). Overvej prisen eller omkostningerne.' };
-    return { cls: 'ok', text: 'Ser fornuftig ud: forventet avance ' + U.kr(r.expected) + ' efter brugtmoms.' };
+    var both = U.kr(r.expBefore) + ' før og ' + U.kr(r.expected) + ' efter brugtmoms';
+    var level = BA.profitLevel(r, st);
+    if (level === 'bad') return { cls: 'bad', text: 'Bilen giver underskud ved den annoncerede pris (' + both + ').' };
+    if (level === 'warn') return { cls: 'warn', text: 'Forventet avance før brugtmoms er under ' + U.kr(min) + ' (' + both + '). Overvej prisen eller omkostningerne.' };
+    return { cls: 'ok', text: 'Ser fornuftig ud: forventet avance ' + both + '.' };
   };
 
   // ---------- kopiér til AutoDesktop ----------

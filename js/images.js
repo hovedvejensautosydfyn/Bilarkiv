@@ -246,6 +246,23 @@
     BA.emit('uploads'); BA.emit('status'); next();
   };
   UP.dismiss = function (id) { list = list.filter(function (x) { return x.id !== id; }); unkeep(id); BA.emit('uploads'); BA.emit('status'); };
+  /** Filer, der ikke blev sendt (de ligger stadig sikkert i telefonen, til de er sendt, eller brugeren selv fjerner dem). */
+  UP.errors = function () { return list.filter(function (x) { return x.status === 'error'; }); };
+  /** Brugeren har selv valgt at slette en bil, der aldrig blev oprettet: dens ventende billeder fjernes også. Giver antallet. */
+  UP.discardForParent = function (parentId) {
+    var gone = list.filter(function (x) { return x.parent === parentId; });
+    gone.forEach(function (x) { unkeep(x.id); });
+    list = list.filter(function (x) { return x.parent !== parentId; });
+    BA.emit('uploads'); BA.emit('status');
+    return gone.length;
+  };
+  UP.discardForCar = function (carId) {
+    var gone = list.filter(function (x) { return x.carId === carId; });
+    gone.forEach(function (x) { unkeep(x.id); });
+    list = list.filter(function (x) { return x.carId !== carId; });
+    BA.emit('uploads'); BA.emit('status');
+    return gone.length;
+  };
 
   // Filer, der venter på at blive sendt, gemmes i telefonen (IndexedDB), så de ikke går tabt, hvis forbindelsen er væk eller appen lukkes.
   var udb = null;
@@ -304,13 +321,14 @@
   function next() {
     if (running) return;
     // En fil sendes først, når bilen findes på serveren: ligger der en ikke-sendt ændring for bilen i køen (fx "opret bil"), venter filen.
-    var e = list.filter(function (x) { return x.status === 'wait' && !BA.store.hasPendingFor(x.carId); })[0];
+    var e = list.filter(function (x) { return x.status === 'wait' && !BA.store.hasPendingFor(x.carId, x.parent); })[0];
     if (!e) return;
     running = true;
     e.status = 'prep'; BA.emit('uploads'); BA.emit('status');
     var prep;
     if (e.kind === 'photo' || (e.kind !== 'video' && /^image\//i.test(e.file.type || '') && e.file.size > 5000000)) {
-      prep = IMG.preparePhoto(e.file).then(function (p) { return { data: p.data, thumb: p.thumb, mime: p.mime, name: p.name, kind: e.kind === 'photo' ? 'photo' : e.kind }; });
+      // Kun billeder har miniature. Et stort papirbillede gøres mindre, men sendes uden miniature (serveren ville afvise den).
+      prep = IMG.preparePhoto(e.file).then(function (p) { return { data: p.data, thumb: e.kind === 'photo' ? p.thumb : '', mime: p.mime, name: p.name, kind: e.kind === 'photo' ? 'photo' : e.kind }; });
     } else {
       prep = blobToB64(e.file).then(function (b64) { return { data: b64, thumb: '', mime: mimeOf(e.file, e.kind), name: e.name, kind: e.kind }; });
     }
@@ -326,11 +344,11 @@
       next();
     }, function (err) {
       e.status = 'error'; e.err = err.message || 'Filen blev ikke sendt.';
-      // Net- og serverfejl prøves automatisk igen; en afvist fil (forkert type, bilen findes ikke mere) gør ikke, og slettes fra telefonen.
+      // Net- og serverfejl prøves automatisk igen. En afvist fil (forkert type, bilen findes ikke mere) prøves ikke automatisk igen,
+      // men SLETTES ALDRIG fra telefonen af sig selv: den bliver liggende (og vises under Mere), til den er sendt, eller brugeren selv fjerner den.
       // Fejl ved at gøre filen klar (fx HEIC, der ikke kan læses) er endelige; "bilen findes ikke" er midlertidigt, hvis bilen stadig findes i telefonen (den er måske endnu ikke oprettet på serveren).
       e.retryable = !err.prep && (/^(NET|BUSY|SERVER|SETUP|AUTH)$/.test(err.code || '') || (err.code === 'NOTFOUND' && !!BA.store.car(e.carId)));
       if (err.prep) e.err = e.err + ' Gør den til en JPG først, og prøv igen.';
-      if (!e.retryable) unkeep(e.id);
       running = false; BA.emit('uploads'); BA.emit('status');
       next();
     });

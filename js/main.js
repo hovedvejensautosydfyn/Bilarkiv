@@ -23,6 +23,7 @@
   }
 
   function route() {
+    if (BA.flushEdits) BA.flushEdits();    // en tekst, der er skrevet men ikke gemt endnu, gemmes, før siden skiftes
     if (!A.hasKey()) { BA.views.bilReset(); setChrome(false); BA.views.login(root, BA.loginHint); return; }
     setChrome(true);
     var r = parseRoute();
@@ -57,6 +58,9 @@
     }, 30);
   }
   BA.on('data', onData);
+  // Listen "Kunne ikke gemmes" under Mere tegnes om, når den ændres.
+  BA.on('failed', function () { if (parseRoute().name === 'mere') onData(); });
+  BA.on('uploads', function () { if (parseRoute().name === 'mere') onData(); });
   BA.on('status', function () { /* gem-status tegnes i ui.js */ });
 
   BA.on('authlost', function (msg) {
@@ -78,23 +82,25 @@
   });
 
   function start() {
-    BA.store.loadLocal();
-    var qp = BA.store.queuePerson(), me = U.safeStore.get('ba.person') || '', n = BA.store.queueLength();
-    if (n && qp && me && qp !== me) {
-      // Ikke-sendte ændringer fra en anden person: spørg, før de sendes.
-      // Dialogen kan ikke lukkes ved et uheld (Escape/tryk ved siden af): der skal vælges, og sletning bekræftes en gang til.
-      BA.store.hold(true);
-      BA.modal('Ændringer fra ' + qp, '<p style="margin:0 0 4px">Der ligger ' + n + (n === 1 ? ' ændring' : ' ændringer') + ', som ' + U.esc(qp) + ' lavede på denne enhed og ikke fik sendt. Skal de sendes nu (som ' + U.esc(me) + ')?</p>' +
-        '<div class="actions"><button type="button" class="btn danger" data-drop>Slet dem</button><button type="button" class="btn primary" data-send>Send dem</button></div>', function (box, close) {
-        box.querySelector('[data-send]').onclick = function () { close(); BA.store.hold(false); BA.store.retry(); };
-        box.querySelector('[data-drop]').onclick = function () {
-          BA.confirm('Slet ændringerne', 'Er du helt sikker? De kan ikke fortrydes.', 'Ja, slet dem', true).then(function (yes) { if (yes) { close(); BA.store.hold(false); BA.store.dropQueue(); } });
-        };
-      }, { sticky: true, onClose: function () { BA.store.hold(false); } });
-    } else if (n) BA.store.retry();
-    route();
-    BA.store.refresh();
-    BA.up.restore();
+    // Det, telefonen har gemt (kopien af arkivet ligger i IndexedDB), hentes først; derefter tegnes siden.
+    BA.store.loadLocal().then(function () {
+      var qp = BA.store.queuePerson(), me = U.safeStore.get('ba.person') || '', n = BA.store.queueLength();
+      if (n && qp && me && qp !== me) {
+        // Ikke-sendte ændringer fra en anden person: spørg, før de sendes.
+        // Dialogen kan ikke lukkes ved et uheld (Escape/tryk ved siden af): der skal vælges, og sletning bekræftes en gang til.
+        BA.store.hold(true);
+        BA.modal('Ændringer fra ' + qp, '<p style="margin:0 0 4px">Der ligger ' + n + (n === 1 ? ' ændring' : ' ændringer') + ', som ' + U.esc(qp) + ' lavede på denne enhed og ikke fik sendt. Skal de sendes nu (som ' + U.esc(me) + ')?</p>' +
+          '<div class="actions"><button type="button" class="btn danger" data-drop>Slet dem</button><button type="button" class="btn primary" data-send>Send dem</button></div>', function (box, close) {
+          box.querySelector('[data-send]').onclick = function () { close(); BA.store.hold(false); BA.store.retry(); };
+          box.querySelector('[data-drop]').onclick = function () {
+            BA.confirm('Slet ændringerne', 'Er du helt sikker? De kan ikke fortrydes.', 'Ja, slet dem', true).then(function (yes) { if (yes) { close(); BA.store.hold(false); BA.store.dropQueue(); } });
+          };
+        }, { sticky: true, onClose: function () { BA.store.hold(false); } });
+      } else if (n) BA.store.retry();
+      route();
+      BA.store.refresh();
+      BA.up.restore();
+    });
   }
 
   function init() {

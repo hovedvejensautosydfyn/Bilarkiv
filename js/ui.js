@@ -75,11 +75,14 @@
   function renderState() {
     stateEl = stateEl || $('#savestate');
     if (!stateEl) return;
-    var S = BA.S, n = BA.store.queueLength(), up = BA.up && BA.up.pending ? BA.up.pending() : 0;
+    var S = BA.S, n = BA.store.queueLength(), up = BA.up && BA.up.pending ? BA.up.pending() : 0, f = S.failedCount || 0;
     var cls = '', html = '';
     var why = S.offlineWhy === 'server' ? 'Serveren svarer ikke' : 'Ikke forbundet';
-    if (!S.online && n) { cls = 'bad'; html = why + ' – ' + n + (n === 1 ? ' ændring venter' : ' ændringer venter') + ' <button type="button" data-retry>Prøv igen</button>'; }
+    if (S.serverOld) { cls = 'bad'; html = 'Serveren skal opdateres' + (n ? ' – ' + n + (n === 1 ? ' ændring venter' : ' ændringer venter') : '') + ' <button type="button" data-retry>Prøv igen</button>'; }
+    else if (!S.online && n) { cls = 'bad'; html = why + ' – ' + n + (n === 1 ? ' ændring venter' : ' ændringer venter') + ' <button type="button" data-retry>Prøv igen</button>'; }
     else if (!S.online) { cls = 'work'; html = why + ' – viser sidst hentede'; }
+    else if (f) { cls = 'bad'; html = f + (f === 1 ? ' ændring kunne ikke gemmes' : ' ændringer kunne ikke gemmes') + ' <button type="button" data-fail>Se</button>'; }
+    else if (S.storageWarn) { cls = 'bad'; html = 'Telefonens lager er fuldt – ændringer kan gå tabt'; }
     else if (S.error) { cls = 'bad'; html = '<span class="clip"></span> <button type="button" data-retry>OK</button>'; }
     else if (n || up) { cls = 'work'; html = '<span class="spin"></span> Gemmer …'; }
     else if (Date.now() - S.savedAt < 2500) { cls = 'ok'; html = 'Gemt ✓'; }
@@ -90,8 +93,20 @@
     if (clip) clip.textContent = S.error;
     var b = stateEl.querySelector('[data-retry]');
     if (b) b.onclick = function () { BA.store.retry(); };
+    var fb = stateEl.querySelector('[data-fail]');
+    if (fb) fb.onclick = function () { BA.go('#/mere'); };
+  }
+  var bannerHtml = null;
+  function renderBanners() {
+    var el = $('#banners');
+    if (!el || !BA.statusBanners) return;
+    var h = BA.api.hasKey() ? BA.statusBanners() : '';
+    if (h === bannerHtml) return;
+    bannerHtml = h; el.innerHTML = h;
   }
   BA.on('status', renderState);
+  BA.on('status', renderBanners);
+  BA.on('data', renderBanners);
 
   /** Står der en ugemt rettelse i et felt, mens noget andet skal tegnes om, venter vi med at tegne. */
   BA.focusInside = function (root) {

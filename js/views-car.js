@@ -72,6 +72,7 @@
             var raw = el.value.trim();
             v = raw === '' ? null : U.pnum(raw);
             if (raw !== '' && (v === null || (kind === 'hours' && v < 0))) { err(k, 'Skriv et tal.'); bad = true; return; }
+            if (k === 'expPrice' && v !== null && v < 0) { err(k, 'Den forventede pris kan ikke være negativ.'); bad = true; return; }
             if (o.req && v === null) { err(k, 'Skriv et beløb.'); bad = true; return; }
           } else {
             v = el.value.trim();
@@ -148,7 +149,10 @@
       if (r.claims) cells.push(cell('Reklamationer', U.kr(r.claims), 'neg'));
     } else {
       cells.push(cell('Annonceret', U.kr(U.pnum(car.listPrice))));
-      cells.push(cell('Forv. avance efter brugtmoms', r.expected == null ? '–' : U.kr(r.expected), r.expected == null ? '' : r.expected < 0 ? 'neg' : r.expected < st.minProfit ? 'warn' : 'pos'));
+      // Grænsen (20.000 kr) gælder avancen FØR brugtmoms. Avancen efter brugtmoms vises ved siden af.
+      var lvl = BA.profitLevel(r, st);
+      cells.push(cell('Forv. avance før brugtmoms', r.expBefore == null ? '–' : U.kr(r.expBefore), lvl === 'bad' ? 'neg' : lvl === 'warn' ? 'warn' : lvl === 'ok' ? 'pos' : ''));
+      cells.push(cell('Forv. avance efter brugtmoms', r.expected == null ? '–' : U.kr(r.expected), r.expected == null ? '' : r.expected < 0 ? 'neg' : ''));
     }
     cells.push(cell('Timer', U.hours(r.hrs)));
     cells.push(cell('Kr. pr. time', r.perHour == null ? '–' : U.kr(r.perHour), r.perHour == null ? '' : r.perHour < st.hourGoal ? 'neg' : 'pos'));
@@ -376,10 +380,13 @@
     paint(root, car);
   };
 
-  function setHtml(el, key, html) {
+  function setHtml(el, key, html, car) {
     if (page.cache[key] === html) return;
     if (BA.focusInside(el)) { page.dirty = true; return; }
     el.innerHTML = html; page.cache[key] = html;
+    // Hvert felt husker den værdi, det blev tegnet med. Den sendes som "udgangspunkt" (from), når feltet rettes – også selv om en anden har
+    // ændret værdien i mellemtiden uden at feltet blev tegnet om (fordi et andet felt i samme afsnit havde fokus). Så bliver det en konflikt.
+    if (car) U.$$('[data-f]', el).forEach(function (x) { x.__shown = car[x.getAttribute('data-f')]; });
     BA.img.hydrate(el);
   }
   function paint(root, car) {
@@ -390,7 +397,7 @@
       var el = $('#' + s.id, root);
       if (!el) return;
       if (s.collapsible) el.classList.toggle('open', !!openFlags[s.collapsible]);
-      setHtml(el.querySelector('[data-body]'), s.id, s.render(car));
+      setHtml(el.querySelector('[data-body]'), s.id, s.render(car), car);
     });
   }
   V.bilUpdate = function (root) { if (page && page.root === root) V.bil(root, page.id); };
@@ -417,10 +424,55 @@
       if (kind === 'date' && val && !/^\d{4}-\d{2}-\d{2}$/.test(val)) return fail('Ugyldig dato.');
     }
     var f = {}; f[k] = val;
-    if (!BA.store.updateCar(car.id, f)) { // uændret: ret visningen (fx stort/småt)
+    // Udgangspunktet er den værdi, feltet viste, da man begyndte at skrive – ikke det, der står i butikken nu. Er en anden kommet først imens, bliver det en konflikt.
+    var shown = null;
+    if (Object.prototype.hasOwnProperty.call(el, '__shown')) { shown = {}; shown[k] = el.__shown; }
+    if (!BA.store.updateCar(car.id, f, shown)) { // uændret: ret visningen (fx stort/småt)
       if (el.tagName !== 'TEXTAREA' && kind !== 'price' && kind !== 'int') el.value = val;
+    } else {
+      el.__shown = val;      // det næste, der skrives, tager udgangspunkt i det, der nu er gemt
+      if (k === 'channel') offerChannelCosts(car.id, val);
     }
   }
+
+  // ----- tekst gemmes, mens man skriver (1 sek. efter sidste tastetryk), og når appen sendes i baggrunden eller siden skiftes -----
+  var editTimer = 0, editId = '';
+  var AUTOSAVE_KINDS = ['text', 'note'];
+  function scheduleSave(el) {
+    editId = el.id;
+    clearTimeout(editTimer);
+    if (AUTOSAVE_KINDS.indexOf(el.getAttribute('data-kind')) >= 0) editTimer = setTimeout(BA.flushEdits, 1000);
+  }
+  /** Gemmer det felt, der er skrevet i, men endnu ikke gemt. */
+  BA.flushEdits = function () {
+    clearTimeout(editTimer);
+    var id = editId; editId = '';
+    if (!id || !page || !page.root || !page.root.isConnected) return;
+    var el = page.root.querySelector('#' + id);
+    if (el && el.matches('[data-f]')) saveField(el, page.root);
+  };
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') BA.flushEdits(); });
+  window.addEventListener('pagehide', function () { BA.flushEdits(); });
+
+  /** Ændres indkøbskanalen bagefter, spørges der, om kanalens faste omkostninger (og status Under transport) skal lægges på. */
+  function offerChannelCosts(carId, channelName) {
+    var car = BA.store.car(carId), ch = BA.findChannel(BA.S.settings, channelName);
+    if (!car || !ch) return;
+    var have = itemsOf(car, 'udgift').filter(function (x) { return x.auto === 'kanal'; }).map(function (x) { return String(x.desc).toLowerCase(); });
+    var missing = ch.costs.filter(function (c) { return have.indexOf(String(c.desc).toLowerCase()) < 0; });
+    var transit = ch.transit && car.status === 'Købt';
+    if (!missing.length && !transit) return;
+    var parts = [];
+    if (missing.length) parts.push('lægge ' + missing.map(function (c) { return c.desc + ' ' + U.kr(c.amount); }).join(', ') + ' i bilens udgifter');
+    if (transit) parts.push('sætte bilen til “Under transport”');
+    BA.confirm('Indkøbskanalen ' + ch.name, 'Skal jeg ' + parts.join(' og ') + '?', 'Ja, gør det', false).then(function (yes) {
+      if (!yes) return;
+      var c2 = BA.store.car(carId); if (!c2) return;
+      missing.forEach(function (c) { BA.store.addItem(carId, 'udgift', { date: c2.boughtDate || U.today(), desc: c.desc, cat: c.cat, amount: c.amount, auto: 'kanal' }); });
+      if (transit && c2.status === 'Købt') BA.store.updateCar(carId, { status: 'Under transport' });
+    });
+  }
+  BA.offerChannelCosts = offerChannelCosts;
 
   function setStatus(car, status) {
     if (status === car.status) return;
@@ -634,9 +686,14 @@
       if (!page) return;
       if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('tr[data-act], [data-toggle]')) { e.preventDefault(); e.target.click(); }
     });
+    root.addEventListener('input', function (e) {
+      if (!page) return;
+      if (e.target.matches && e.target.matches('[data-f]')) scheduleSave(e.target);
+    });
     root.addEventListener('change', function (e) {
       if (!page) return;
       var el = e.target;
+      if (el.id && el.id === editId) { clearTimeout(editTimer); editId = ''; }
       if (el.matches('[data-f]')) { saveField(el, root); return; }
       if (el.matches('select[data-act], input[type=checkbox][data-act]')) runAct(el, root);
     });
@@ -659,7 +716,16 @@
     root.addEventListener('focusout', function () { setTimeout(function () { if (page && page.dirty && !BA.focusInside(root)) V.bilUpdate(root); }, 80); });
   }
   // En ændring blev afvist: tegn alt om efter serverens værdier (også felter, der ellers ville vise den ikke-gemte værdi).
-  BA.on('rollback', function () { if (page && page.root && page.root.isConnected) { page.cache = {}; V.bilUpdate(page.root); } });
+  BA.on('rollback', function (info) {
+    var keys = info && info.fn === 'updateCar' && page && info.id === page.id ? info.keys : [];   // kun en afvist rettelse af DENNE bil rører feltets startværdi
+    if (page && page.root && page.root.isConnected) {
+      // En ændring blev afvist. Felter, der tegnes om, får selv ny startværdi (setHtml). Står det afviste felt stadig med fokus (og bliver derfor ikke
+      // tegnet om), tager næste rettelse udgangspunkt i serverens værdi. ALLE ANDRE felter røres ikke: de viser stadig det gamle, og en anden kan have ændret dem.
+      var car = BA.store.car(page.id), ae = document.activeElement;
+      if (car && ae && ae.matches && ae.matches('[data-f]') && keys && keys.indexOf(ae.getAttribute('data-f')) >= 0) ae.__shown = car[ae.getAttribute('data-f')];
+      page.cache = {}; V.bilUpdate(page.root);
+    }
+  });
   BA.on('uploads', function () { if (page && page.root && page.root.isConnected) V.bilUpdate(page.root); });
 
   function loadLog(root) {
