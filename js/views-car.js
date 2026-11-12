@@ -203,7 +203,7 @@
   function equipSec(car) {
     var list = itemsOf(car, 'udstyr').sort(byCreated);
     return secHead('Udstyr', list.length) + (list.length ? '<div class="chips">' + list.map(function (e) {
-      return '<span class="chip big' + (e.source === 'dmr' ? '' : ' acc') + '" title="' + (e.source === 'dmr' ? 'Fra registret' : 'Tilføjet af dig') + '">' + esc(e.name) + '<button type="button" data-act="eq-del" data-id="' + esc(e.id) + '" aria-label="Fjern ' + esc(e.name) + '">✕</button></span>';
+      return '<span class="chip big" title="' + (e.source === 'dmr' ? 'Fra registret' : 'Tilføjet af dig') + '">' + esc(e.name) + '<button type="button" data-act="eq-del" data-id="' + esc(e.id) + '" aria-label="Fjern ' + esc(e.name) + '">✕</button></span>';
     }).join('') + '</div>' : '<p class="muted small" style="margin:0">Intet udstyr endnu.</p>');
   }
 
@@ -514,11 +514,30 @@
   function openAd(car) {
     var fields = BA.adFields(car, BA.S.items);
     var html = '<div class="row" style="margin-bottom:8px"><button type="button" class="btn primary" data-copyall>Kopiér alt</button></div>' +
-      fields.map(function (f, i) { return '<div class="copyrow"><div class="k">' + esc(f.label) + '</div><div class="v">' + (f.value ? esc(f.value) : '<span class="muted">–</span>') + '</div>' + (f.value ? '<button type="button" class="btn small" data-copy="' + i + '">Kopiér</button>' : '') + '</div>'; }).join('') +
+      fields.map(function (f, i) {
+        if (f.list && f.list.length) {
+          // Udstyr: ét tryk pr. udstyr, ligesom udstyrslisten (AutoDesktop tager ét ad gangen).
+          return '<div class="copyeq"><div class="row between"><div class="k">Udstyr ' + f.list.length + '</div>' +
+            '<button type="button" class="btn small" data-copy="' + i + '">Kopiér alle</button></div>' +
+            '<div class="chips">' + f.list.map(function (n, j) { return '<button type="button" class="chip big copyit" data-eqcopy="' + j + '">' + esc(n) + '</button>'; }).join('') + '</div>' +
+            '<div class="hint">Tryk på et udstyr for at kopiere det. Kopierede får et ✓.</div></div>';
+        }
+        return '<div class="copyrow"><div class="k">' + esc(f.label) + '</div><div class="v">' + (f.value ? esc(f.value) : '<span class="muted">–</span>') + '</div>' + (f.value ? '<button type="button" class="btn small" data-copy="' + i + '">Kopiér</button>' : '') + '</div>';
+      }).join('') +
       '<div class="actions"><button type="button" class="btn" data-cancel>Luk</button></div>';
     BA.modal('Kopiér til AutoDesktop', html, function (box, close) {
       $('[data-cancel]', box).onclick = function () { close(); };
       var done = function (ok, what) { BA.toast(ok ? what + ' er kopieret.' : 'Kunne ikke kopiere. Mærk teksten og kopiér selv.'); };
+      var eqf = fields.filter(function (f) { return f.list; })[0];
+      U.$$('[data-eqcopy]', box).forEach(function (b) {
+        b.onclick = function () {
+          var name = eqf.list[+b.getAttribute('data-eqcopy')];
+          U.copy(name).then(function (ok) {
+            if (ok) { b.classList.add('done'); if (b.textContent.indexOf('✓') !== 0) b.textContent = '✓ ' + name; }
+            done(ok, name);
+          });
+        };
+      });
       $('[data-copyall]', box).onclick = function () { U.copy(BA.adAll(car, BA.S.items)).then(function (ok) { done(ok, 'Alt'); }); };
       U.$$('[data-copy]', box).forEach(function (b) { b.onclick = function () { var f = fields[+b.getAttribute('data-copy')]; U.copy(f.value).then(function (ok) { done(ok, f.label); }); }; });
     });

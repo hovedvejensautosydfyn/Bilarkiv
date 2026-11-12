@@ -209,7 +209,11 @@
       ['Reg.nr.', car.reg], ['Pris', car.listPrice != null ? U.fmtN(car.listPrice) : ''],
       ['Udstyr', equip.join(', ')], ['Fejl og mangler', defects.join('; ')], ['Noter', car.notes]
     ];
-    return list.map(function (x) { return { label: x[0], value: x[1] == null ? '' : String(x[1]) }; });
+    return list.map(function (x) {
+      var f = { label: x[0], value: x[1] == null ? '' : String(x[1]) };
+      if (x[0] === 'Udstyr') f.list = equip;   // hver enkelt udstyrslinje kan kopieres for sig
+      return f;
+    });
   };
   BA.adAll = function (car, items) {
     // Noter er interne og kommer ikke med i "Kopiér alt" (de kan kopieres for sig).

@@ -81,6 +81,11 @@ h1.page::after { content: ""; display: block; width: 38px; height: 3px; border-r
 .field > label, .lbl { display: block; font-size: 13px; font-weight: 500; color: var(--muted); margin-bottom: 4px; }
 input[type=text], input[type=tel], input[type=date], input[type=number], input[type=search], input[type=url], input:not([type]), select, textarea {
   width: 100%; min-height: 46px; padding: 10px 13px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--ink); font-size: 16px; }
+/* iPhone: datofelter fylder ellers mere end deres plads og skubber ind over nabofeltet */
+input[type=date] { -webkit-appearance: none; appearance: none; display: block; min-width: 0; max-width: 100%; height: 46px; text-align: left; line-height: 1.2; }
+input[type=date]::-webkit-date-and-time-value { text-align: left; min-height: 1.2em; margin: 0; }
+input[type=date]::-webkit-datetime-edit { padding: 0; }
+.grid2 > *, .grid3 > * { min-width: 0; }
 textarea { min-height: 90px; resize: vertical; line-height: 1.4; }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--ink); box-shadow: 0 0 0 3px var(--accent-soft); }
 input.invalid, select.invalid, textarea.invalid { border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
@@ -198,6 +203,12 @@ table.lines tr.click { cursor: pointer; } table.lines tr.click:hover td { backgr
 .skeleton { background: linear-gradient(90deg, var(--surface) 25%, var(--surface-2) 50%, var(--surface) 75%); background-size: 200% 100%; animation: sk 1.4s infinite; border-radius: var(--radius); height: 220px; }
 @keyframes sk { to { background-position: -200% 0; } }
 .copyrow { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+.copyeq { padding: 10px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin: 4px 0; }
+.copyeq .k { color: var(--muted); font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.copyeq .chips { margin: 10px 0 8px; }
+.copyeq .hint { color: var(--muted); font-size: 12.5px; }
+.chip.copyit { border: 1px solid var(--line-strong); cursor: pointer; font-family: inherit; white-space: normal; text-align: left; min-height: 40px; color: var(--ink); }
+.chip.copyit.done { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
 .copyrow:first-of-type { border-top: 0; } .copyrow .k { width: 130px; flex: none; color: var(--muted); font-size: 13px; } .copyrow .v { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .pre { white-space: pre-wrap; background: var(--surface-2); border-radius: var(--radius-sm); padding: 10px 12px; font-size: 14px; max-height: 240px; overflow: auto; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
