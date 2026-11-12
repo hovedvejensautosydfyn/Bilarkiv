@@ -152,7 +152,9 @@
     }
     cells.push(cell('Timer', U.hours(r.hrs)));
     cells.push(cell('Kr. pr. time', r.perHour == null ? '–' : U.kr(r.perHour), r.perHour == null ? '' : r.perHour < st.hourGoal ? 'neg' : 'pos'));
-    cells.push(cell(r.sold ? 'Dage på lager' : 'Dage på lager', r.days == null ? '–' : r.days + (r.days === 1 ? ' dag' : ' dage'), !r.sold && r.days != null && r.days >= st.stockDays ? 'neg' : ''));
+    var dd = function (n) { return n == null ? '–' : n + (n === 1 ? ' dag' : ' dage'); };
+    cells.push(cell('Dage siden køb', dd(r.days)));
+    cells.push(cell(r.sold ? 'Dage til salg (til solgt)' : 'Dage til salg', dd(r.listedDays), !r.sold && r.listedDays != null && r.listedDays >= st.stockDays ? 'neg' : ''));
     h += '<div class="econ">' + cells.join('') + '</div>';
     var v = BA.verdict(r, st);
     if (v) h += '<div class="verdict ' + v.cls + '" role="status"><b>Kan det betale sig?</b> ' + esc(v.text) + '</div>';
@@ -188,6 +190,7 @@
       inp(car, 'vin', 'Stelnummer', 'vin', 'maxlength="20" autocapitalize="characters"') +
       '<div class="field"><label for="f-channel">Indkøbskanal</label><select id="f-channel" data-f="channel" data-kind="text">' + BA.options(chans, car.channel, '—') + '</select></div>' +
       '<div class="grid3">' + inp(car, 'boughtDate', 'Købsdato', 'date', 'type="date"') + inp(car, 'buyPrice', 'Købspris (kr)', 'price', 'inputmode="decimal"') + inp(car, 'listPrice', 'Annonceret pris (kr)', 'price', 'inputmode="decimal"') + '</div>' +
+      inp(car, 'listedDate', 'Sat til salg (dato) – dagene til salg tæller herfra', 'date', 'type="date"') +
       (car.motKm != null ? '<p class="muted small" style="margin:0">Seneste syn' + (car.motDate ? ' (' + esc(U.fmtDate(car.motDate)) + ')' : '') + ': ' + esc(U.fmtN(car.motKm)) + ' km' + (car.nextInspection ? ' · næste syn ' + esc(U.fmtDate(car.nextInspection)) : '') + '</p>' : '') +
       '<datalist id="dl-fuel"><option>Benzin<option>Diesel<option>El<option>Hybrid (benzin)<option>Plug-in hybrid</datalist>';
   }

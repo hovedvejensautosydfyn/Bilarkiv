@@ -167,7 +167,10 @@
     }
     r.perHour = hrs > 0 && r.base != null ? r.base / hrs : null;
     var end = BA.isSold(car.status) && car.soldDate ? car.soldDate : U.today();
+    // days = dage siden køb. listedDays = dage til salg: fra den dag, bilen blev sat til Annonceret (ellers fra købsdatoen, hvis bilen allerede er annonceret/solgt).
     r.days = car.boughtDate ? U.daysBetween(car.boughtDate, end) : null;
+    var listed = car.listedDate || (BA.STATUSES.indexOf(car.status) >= 6 ? car.boughtDate : '');
+    r.listedDays = listed ? Math.max(0, U.daysBetween(listed, end)) : null;
     return r;
   };
 

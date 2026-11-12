@@ -88,7 +88,7 @@
   }
   BA.findChannel = findChannel;
 
-  var CAR_BLANK = { id: '', reg: '', model: '', variant: '', year: '', vin: '', fuel: '', color: '', firstReg: '', km: null, channel: '', boughtDate: '', buyPrice: null, listPrice: null, status: 'Købt',
+  var CAR_BLANK = { listedDate: '', id: '', reg: '', model: '', variant: '', year: '', vin: '', fuel: '', color: '', firstReg: '', km: null, channel: '', boughtDate: '', buyPrice: null, listPrice: null, status: 'Købt',
     soldDate: '', soldPrice: null, soldVia: '', buyer: '', buyerPhone: '', notes: '', cover: '', motKm: null, motDate: '', nextInspection: '', folderId: '', extra: {}, createdAt: 0, createdBy: '', updatedAt: 0, updatedBy: '', rev: 1, deleted: false };
 
   var ITEM_DEFAULTS = {
@@ -307,6 +307,8 @@
       if (JSON.stringify(car[k] == null ? '' : car[k]) !== JSON.stringify(fields[k] == null ? '' : fields[k])) { from[k] = car[k] === undefined ? null : car[k]; changed[k] = fields[k]; any = true; }
     });
     if (!any) return false;
+    // Sættes bilen til Annonceret, begynder dagene "til salg" (serveren gør det samme).
+    if (changed.status === 'Annonceret' && !car.listedDate && !('listedDate' in changed)) { from.listedDate = car.listedDate || ''; changed.listedDate = U.today(); }
     enqueue('updateCar', { id: id, fields: changed, from: from }, { k: 'carset', id: id, fields: changed });
     return true;
   };

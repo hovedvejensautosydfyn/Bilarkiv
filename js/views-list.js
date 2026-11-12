@@ -88,7 +88,12 @@
       ['Kr. pr. time', r.perHour == null ? '–' : '<span class="' + (r.perHour < st.hourGoal ? 'neg' : 'pos') + '">' + U.kr(r.perHour) + '</span>']];
     else kv = [['Kostpris', U.kr(r.cost)], ['Annonceret', U.kr(U.pnum(c.listPrice))], ['Forv. avance', r.expected == null ? '–' : '<span class="' + (r.expected < 0 ? 'neg' : r.expected < st.minProfit ? 'warn' : 'pos') + '">' + U.kr(r.expected) + '</span>']];
     var sub = [c.year, c.km != null ? U.fmtN(c.km) + ' km' : null, c.fuel].filter(Boolean).join(' · ');
-    var days = !sold && r.days != null ? '<span class="chip ' + (r.days >= st.stockDays ? 'bad' : '') + '">' + r.days + ' dage</span>' : '';
+    var days = '';
+    if (!sold) {
+      var bought = r.days != null ? '<span class="chip" title="Dage siden køb">Købt ' + r.days + ' d</span>' : '';
+      var onSale = r.listedDays != null ? '<span class="chip ' + (r.listedDays >= st.stockDays ? 'bad' : 'acc') + '" title="Dage til salg">Til salg ' + r.listedDays + ' d</span>' : '';
+      days = '<span class="row" style="gap:6px">' + onSale + bought + '</span>';
+    }
     var claimsN = BA.store.itemsOf(c.id, 'reklamation').length;
     return '<a class="carcard" href="#/bil/' + esc(c.id) + '">' +
       '<div class="ph">' + (cover ? '<img data-iid="' + esc(cover.id) + '" alt="" data-ph="Intet billede">' : 'Intet billede endnu') + '<span class="st chip ' + BA.statusClass(c.status) + '">' + esc(c.status) + '</span></div>' +
@@ -310,7 +315,7 @@
       '<div class="card"><div class="hd"><h2>Mål og regler</h2></div>' +
       '<div class="grid2"><div class="field"><label for="s-hourGoal">Mål: kr. pr. time</label><input id="s-hourGoal" data-s="hourGoal" inputmode="decimal" value="' + esc(U.num(st.hourGoal)) + '"></div>' +
       '<div class="field"><label for="s-monthGoal">Mål: resultat pr. måned (kr)</label><input id="s-monthGoal" data-s="monthGoal" inputmode="decimal" value="' + esc(U.num(st.monthGoal)) + '"></div></div>' +
-      '<div class="grid2"><div class="field"><label for="s-stockDays">Advar efter (dage på lager)</label><input id="s-stockDays" data-s="stockDays" inputmode="numeric" value="' + esc(st.stockDays) + '"></div>' +
+      '<div class="grid2"><div class="field"><label for="s-stockDays">Advar efter (dage til salg)</label><input id="s-stockDays" data-s="stockDays" inputmode="numeric" value="' + esc(st.stockDays) + '"></div>' +
       '<div class="field"><label for="s-minProfit">Advar hvis forventet avance under (kr)</label><input id="s-minProfit" data-s="minProfit" inputmode="decimal" value="' + esc(U.num(st.minProfit)) + '"></div></div>' +
       '<div class="grid2"><div class="field"><label for="s-vat">Brugtmoms (%)</label><input id="s-vat" data-s="vat" inputmode="decimal" value="' + esc(U.num(st.vat * 100)) + '"></div>' +
       '<div class="field"><label for="s-sellerName">Sælgerens navn (på papirer)</label><input id="s-sellerName" data-s="sellerName" maxlength="60" value="' + esc(st.sellerName) + '"></div></div>' +
