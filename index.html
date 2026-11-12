@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src https://script.google.com https://script.googleusercontent.com; worker-src 'self'; manifest-src 'self'; base-uri 'self'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Bilarkiv</title>
+<meta name="description" content="Bilarkiv – Hovedvejens Auto Sydfyn">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Bilarkiv">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="stylesheet" href="app.css">
+<script src="config.js"></script>
+</head>
+<body class="guest">
+<header class="top">
+  <a class="brand" href="#/lager"><img src="icons/logo-hvid.png" alt="Hovedvejens Auto"><span>Bilarkiv</span></a>
+  <nav class="nav" id="nav" aria-label="Hovedmenu">
+    <a href="#/lager" data-nav="lager">Lager</a><a href="#/solgte" data-nav="solgte">Solgte</a><a href="#/ny" data-nav="ny">+ Ny bil</a><a href="#/mere" data-nav="mere">Mere</a>
+  </nav>
+  <div class="grow"></div>
+  <div class="savestate" id="savestate" aria-live="polite"></div>
+  <div class="who" id="who"></div>
+</header>
+<main id="view"><div class="skeleton" style="height:120px"></div></main>
+<nav class="tabbar" id="tabbar" aria-label="Hovedmenu (telefon)">
+  <a href="#/lager" data-nav="lager"><span class="ic" aria-hidden="true">🚗</span>Lager</a>
+  <a href="#/solgte" data-nav="solgte"><span class="ic" aria-hidden="true">✓</span>Solgte</a>
+  <a href="#/ny" data-nav="ny" class="plus"><span class="ic" aria-hidden="true">+</span>Ny bil</a>
+  <a href="#/mere" data-nav="mere"><span class="ic" aria-hidden="true">⋯</span>Mere</a>
+</nav>
+<div id="toast" class="toast" role="status" hidden></div>
+<datalist id="dl-exp"><option>Reparation<option>Klargøring<option>Dæk/fælge<option>Rude<option>Syn<option>Transport<option>Andet</datalist>
+<script src="js/util.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/store.js"></script>
+<script src="js/images.js"></script>
+<script src="js/views-list.js"></script>
+<script src="js/views-car.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
