@@ -23,27 +23,36 @@
 <header class="top">
   <a class="brand" href="#/lager"><img src="icons/logo-hvid.png" alt="Hovedvejens Auto"><span>Bilarkiv</span></a>
   <nav class="nav" id="nav" aria-label="Hovedmenu">
-    <a href="#/lager" data-nav="lager">Lager</a><a href="#/solgte" data-nav="solgte">Solgte</a><a href="#/ny" data-nav="ny">+ Ny bil</a><a href="#/mere" data-nav="mere">Mere</a>
+    <a href="#/lager" data-nav="lager">Lager</a><a href="#/todo" data-nav="todo">To-do <span class="badge" data-todo-badge hidden></span></a><a href="#/solgte" data-nav="solgte">Solgte</a><a href="#/overblik" data-nav="overblik">Overblik</a><a href="#/ny" data-nav="ny">+ Ny bil</a><a href="#/mere" data-nav="mere">Mere</a>
   </nav>
   <div class="grow"></div>
   <div class="savestate" id="savestate" aria-live="polite"></div>
   <div class="who" id="who"></div>
 </header>
-<main><div id="banners" aria-live="polite"></div><div id="view"><div class="skeleton" style="height:120px"></div></div></main>
+<main><div id="banners" aria-live="polite"></div><div id="layout"><div id="view"><div class="skeleton" style="height:120px"></div></div><aside id="side" aria-label="To-do" hidden></aside></div></main>
 <nav class="tabbar" id="tabbar" aria-label="Hovedmenu (telefon)">
   <a href="#/lager" data-nav="lager"><span class="ic" aria-hidden="true">🚗</span>Lager</a>
-  <a href="#/solgte" data-nav="solgte"><span class="ic" aria-hidden="true">✓</span>Solgte</a>
+  <a href="#/todo" data-nav="todo"><span class="ic" aria-hidden="true">☑<span class="badge" data-todo-badge hidden></span></span>To-do</a>
   <a href="#/ny" data-nav="ny" class="plus"><span class="ic" aria-hidden="true">+</span>Ny bil</a>
+  <a href="#/solgte" data-nav="solgte"><span class="ic" aria-hidden="true">✓</span>Solgte</a>
   <a href="#/mere" data-nav="mere"><span class="ic" aria-hidden="true">⋯</span>Mere</a>
 </nav>
 <div id="toast" class="toast" role="status" hidden></div>
 <datalist id="dl-exp"><option>Reparation<option>Klargøring<option>Dæk/fælge<option>Rude<option>Syn<option>Transport<option>Andet</datalist>
 <script src="js/util.js"></script>
+<script src="js/docs.js"></script>
+<script src="js/todo.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/store.js"></script>
 <script src="js/images.js"></script>
 <script src="js/views-list.js"></script>
 <script src="js/views-car.js"></script>
+<script src="js/views-todo.js"></script>
+<script src="js/ad.js"></script>
+<script src="js/econ.js"></script>
+<script src="js/views-docs.js"></script>
+<script src="js/views-bytte.js"></script>
+<script src="js/views-econ.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

@@ -17,7 +17,7 @@
   var LS = { key: 'ba.key', server: 'ba.server', person: 'ba.person', cacheOld: 'ba.cache.v1', queue: 'ba.queue.v1', failed: 'ba.failed.v1', qperson: 'ba.queue.person' };
   var TIMEOUT_MS = 45000, UPLOAD_TIMEOUT_MS = 180000;
   /** Laveste serverversion, appen kan arbejde sammen med (Code.gs: SERVER_VERSION). */
-  var NEEDS_SERVER = 2;
+  var NEEDS_SERVER = 4;
   var FULL_EVERY_MS = 10 * 60 * 1000, OVERLAP_MS = 60000, MAX_SERVER_FAILS = 8;
 
   // ---------------------------------------------------------------------------
@@ -91,6 +91,7 @@
   A.clearAll = function () {
     A._memKey = '';
     [LS.key, LS.person, LS.cacheOld, LS.queue, LS.failed, LS.qperson, 'ba.newcar'].forEach(U.safeStore.del);
+    if (BA.clearDrafts) BA.clearDrafts(true);   // kladder til dokumenter, annoncer og byttebil (kundeoplysninger og underskrifter) følger ikke med til den næste, der logger ind
     kvDel('cache'); kvDel('queue'); kvDel('failed');
   };
 
@@ -133,9 +134,9 @@
   // ---------------------------------------------------------------------------
   // Data
   // ---------------------------------------------------------------------------
-  var DEFAULT_SETTINGS = { vat: 0.2, hourGoal: 500, monthGoal: 60000, stockDays: 60, minProfit: 20000, sellerName: '', channels: [], salesChannels: [] };
+  var DEFAULT_SETTINGS = { vat: 0.2, hourGoal: 500, monthGoal: 60000, stockDays: 60, minProfit: 20000, sellerName: '', channels: [], salesChannels: [], priceCheckDays: [30, 45, 60], chargeHours: 48, morningHour: 8 };
   var S = BA.S = { ready: false, cars: [], items: [], settings: DEFAULT_SETTINGS, device: null, online: true, lastSync: 0, error: '', pending: 0, savedAt: 0, loaded: false,
-    serverVersion: 0, serverOld: false, versionOk: false, storageWarn: false, failedCount: 0, backup: null };
+    serverVersion: 0, serverOld: false, versionOk: false, storageWarn: false, failedCount: 0, backup: null, reminders: null };
   var base = { cars: [], items: [], settings: null };
   var Q = [];          // ændringer, der venter på at blive sendt
   var Fl = [];         // ændringer, der ikke kunne gemmes (venter på, at brugeren retter, sender igen eller sletter dem)
@@ -160,8 +161,11 @@
     udstyr: { name: '', source: 'egen' }, fejl: { text: '', note: '', fixed: false },
     opgave: { text: '', who: '', expPrice: null, expHours: null, done: false, doneDate: '', actPrice: null, actHours: null, fromDefect: '' },
     udgift: { date: '', desc: '', cat: '', amount: null, auto: '', defectId: '' }, time: { date: '', desc: '', cat: '', hours: null },
-    reklamation: { date: '', desc: '', type: '', fix: '', kind: '', amount: null },
-    abonnement: { name: '', cat: '', amount: null, freq: 'Månedlig', start: '', end: '' }, enkeltudgift: { date: '', desc: '', cat: '', amount: null }
+    reklamation: { date: '', desc: '', ctype: '', fix: '', kind: '', amount: null },
+    abonnement: { name: '', cat: '', amount: null, freq: 'Månedlig', start: '', end: '' }, enkeltudgift: { date: '', desc: '', cat: '', amount: null },
+    tick: { kind: '', at: null }, todo: { text: '', due: '', done: false, doneAt: null, note: '' },
+    booking: { start: null, kind: 'Prøvetur', who: '', phone: '', note: '', done: false, cancelled: false },
+    tjek: { list: '', key: '', state: '', note: '', at: null }
   };
   BA.itemDefaults = function (type) { return clone(ITEM_DEFAULTS[type] || {}); };
 
@@ -355,14 +359,14 @@
       if (res.unchanged) {
         // Intet nyt: ingen data at tegne om.
         stamp = { time: res.serverTime, rev: res.rev, gen: res.gen };
-        S.lastSync = Date.now(); S.online = true; S.ready = true; S.backup = res.backup || S.backup;
+        S.lastSync = Date.now(); S.online = true; S.ready = true; S.backup = res.backup || S.backup; S.reminders = res.reminders || S.reminders;
         if (res.device) S.device = res.device;
         saveCacheSoon(); BA.emit('status');
       } else {
         if (res.delta) mergeDelta(res);
         else { base = { cars: res.cars || [], items: res.items || [], settings: res.settings || DEFAULT_SETTINGS }; lastFull = Date.now(); }
         stamp = typeof res.rev === 'number' && res.serverTime > 0 ? { time: res.serverTime, rev: res.rev, gen: res.gen } : { time: 0, rev: -1 };   // en gammel server har ingen tæller: altid fuld hentning
-        S.device = res.device || S.device; S.lastSync = Date.now(); S.loaded = true; S.ready = true; S.online = true; S.backup = res.backup || null;
+        S.device = res.device || S.device; S.lastSync = Date.now(); S.loaded = true; S.ready = true; S.online = true; S.backup = res.backup || null; S.reminders = res.reminders || null;
         if (res.statuses && res.statuses.length) BA.STATUSES = res.statuses;
         if (S.device && S.device.person) U.safeStore.set(LS.person, S.device.person);
         commit();
@@ -401,6 +405,11 @@
       case 'updateCar': case 'markSold': case 'reopenSale': case 'deleteCar': case 'restoreCar': upsertCar(res.car); break;
       case 'addItem': case 'updateItem': case 'deleteItem': case 'restoreItem': upsertItem(res.item); break;
       case 'updateSettings': base.settings = res.settings; break;
+      case 'makeDocument':
+        upsertItem(res.item);
+        if (res.removed) base.items = base.items.filter(function (i) { return i.id !== res.removed; });
+        if (res.car) upsertCar(res.car);
+        break;
     }
     if (op.fn === 'restoreCar' && res.car) {
       // Bilens poster kom ikke med: hent dem igen (serveren sender alle poster på en bil, der er ændret).
@@ -426,7 +435,7 @@
     ensureVersion().then(function (ok) {
       if (!ok) { pumping = false; S.online = true; BA.emit('status'); return; }   // serveren er for gammel: ændringerne bliver liggende, til den er opdateret
       var op = Q[0];
-      return A.call(op.fn, op.arg).then(function (res) { sent(op, res); }, function (err) { failed(op, err); });
+      return A.call(op.fn, op.arg, op.fn === 'makeDocument' ? { timeout: UPLOAD_TIMEOUT_MS } : undefined).then(function (res) { sent(op, res); }, function (err) { failed(op, err); });
     }, function (err) { failed(null, err); });
   }
 
@@ -461,10 +470,17 @@
     channel: 'Indkøbskanal', boughtDate: 'Købsdato', buyPrice: 'Købspris', listPrice: 'Annonceret pris', status: 'Status', soldDate: 'Salgsdato', soldPrice: 'Salgspris', soldVia: 'Salgskanal',
     buyer: 'Køber', buyerPhone: 'Købers telefon', notes: 'Noter', cover: 'Forsidebillede', listedDate: 'Sat til salg', name: 'Navn', text: 'Tekst', note: 'Note', desc: 'Beskrivelse',
     amount: 'Beløb', hours: 'Timer', date: 'Dato', cat: 'Kategori', expPrice: 'Forventet pris', expHours: 'Forventede timer', actPrice: 'Faktisk pris', actHours: 'Faktiske timer', done: 'Lavet',
-    fixed: 'Afhjulpet', who: 'Hvem', kind: 'Type', fix: 'Løsning', type: 'Fejltype', hourGoal: 'Mål: kr. pr. time', monthGoal: 'Mål pr. måned', stockDays: 'Advar efter dage', minProfit: 'Advar under (kr)',
-    vat: 'Brugtmoms', sellerName: 'Sælgerens navn', channels: 'Indkøbskanaler', salesChannels: 'Salgskanaler', source: 'Kilde' };
+    fixed: 'Afhjulpet', who: 'Hvem', kind: 'Type', fix: 'Løsning', ctype: 'Fejltype', hourGoal: 'Mål: kr. pr. time', monthGoal: 'Mål pr. måned', stockDays: 'Advar efter dage', minProfit: 'Advar under (kr)',
+    vat: 'Brugtmoms', sellerName: 'Sælgerens navn', channels: 'Indkøbskanaler', salesChannels: 'Salgskanaler', source: 'Kilde',
+    start: 'Tidspunkt', at: 'Tidspunkt', doneAt: 'Udført', due: 'Frist', phone: 'Telefon', cancelled: 'Aflyst',
+    priceCheckDays: 'Pris-tjek efter dage', chargeHours: 'Lader flyttes hver (timer)', morningHour: 'Morgenbesked kl.',
+    list: 'Tjekliste', key: 'Punkt', state: 'Svar' };
   BA.store.fieldLabel = function (k) { return LABELS[k] || k; };
-  var TYPE_NAMES = { udstyr: 'udstyr', fejl: 'fejl', opgave: 'opgave', udgift: 'udgift', time: 'timer', reklamation: 'reklamation', abonnement: 'fast udgift', enkeltudgift: 'enkeltudgift' };
+  var TYPE_NAMES = { udstyr: 'udstyr', fejl: 'fejl', opgave: 'opgave', udgift: 'udgift', time: 'timer', reklamation: 'reklamation', abonnement: 'fast udgift', enkeltudgift: 'enkeltudgift',
+    tick: 'afkrydsning', todo: 'egen opgave', booking: 'booking', tjek: 'tjekpunkt' };
+  var TICK_NAMES = { charge: 'Ladet', pricecheck: 'Pris tjekket', regcert: 'Registreringsattest modtaget', dereg: 'Afmeldt / omregistreret', dispute: 'Tvist afklaret',
+    invoice: 'Faktura sendt', paid: 'Betalt', inspect: 'Synshal / indregistrering', pickup: 'Klar til afhentning' };
+  BA.store.tickName = function (k) { return TICK_NAMES[k] || k; };
   function shortVal(v) {
     if (v === null || v === undefined || v === '') return '(tom)';
     if (v === true) return 'ja'; if (v === false) return 'nej';
@@ -472,12 +488,21 @@
     return s.length > 400 ? s.slice(0, 400) + ' …' : s;
   }
   BA.store.shortVal = shortVal;
+  function itemName(it) {
+    if (it.type === 'booking') return (it.kind || 'Booking') + ' ' + U.fmtLocal(it.start);
+    if (it.type === 'tick') return BA.store.tickName(it.kind);
+    return it.name || it.text || it.desc || '';
+  }
   function carLabel(id) {
     var c = maps.car[id];
     return c ? ((c.reg ? c.reg + ' ' : '') + (c.model || '')).trim() : 'bilen';
   }
   function fieldLines(fields) {
-    return Object.keys(fields || {}).map(function (k) { return (LABELS[k] || k) + ': ' + shortVal(fields[k]); });
+    return Object.keys(fields || {}).map(function (k) {
+      var v = fields[k];
+      if ((k === 'start' || k === 'at' || k === 'doneAt') && typeof v === 'number') v = U.fmtLocal(v);
+      return (LABELS[k] || k) + ': ' + shortVal(v);
+    });
   }
   /** Læsbar beskrivelse af en ændring: { title, lines }. Laves, mens bilen og posten stadig kendes. */
   function describeOp(op) {
@@ -489,10 +514,16 @@
       case 'reopenSale': return { title: 'Fortryd salg af ' + carLabel(a.id), lines: [] };
       case 'deleteCar': return { title: 'Sletning af ' + carLabel(a.id), lines: [] };
       case 'restoreCar': return { title: 'Gendan ' + carLabel(a.id), lines: [] };
-      case 'addItem': return { title: 'Ny ' + (TYPE_NAMES[a.type] || 'post') + (a.carId ? ' på ' + carLabel(a.carId) : ''), lines: fieldLines(a.data) };
-      case 'updateItem': { var it = maps.item[a.id]; return { title: 'Ændring af ' + (it ? (TYPE_NAMES[it.type] || 'post') + ' "' + (it.name || it.text || it.desc || '') + '"' : 'en post') + (it && it.carId ? ' på ' + carLabel(it.carId) : ''), lines: fieldLines(a.fields) }; }
-      case 'deleteItem': case 'restoreItem': { var it2 = maps.item[a.id]; return { title: (op.fn === 'deleteItem' ? 'Sletning af ' : 'Gendan ') + (it2 ? (TYPE_NAMES[it2.type] || 'post') + ' "' + (it2.name || it2.text || it2.desc || '') + '"' : 'en post'), lines: [] }; }
+      case 'addItem':
+        if (a.type === 'tick') return { title: 'Afkrydsning “' + BA.store.tickName(a.data && a.data.kind) + '” på ' + carLabel(a.carId), lines: a.data && a.data.at ? ['Tidspunkt: ' + U.fmtLocal(a.data.at)] : [] };
+        return { title: 'Ny ' + (TYPE_NAMES[a.type] || 'post') + (a.carId ? ' på ' + carLabel(a.carId) : ''), lines: fieldLines(a.data) };
+      case 'updateItem': { var it = maps.item[a.id]; return { title: 'Ændring af ' + (it ? (TYPE_NAMES[it.type] || 'post') + ' "' + itemName(it) + '"' : 'en post') + (it && it.carId ? ' på ' + carLabel(it.carId) : ''), lines: fieldLines(a.fields) }; }
+      case 'deleteItem': case 'restoreItem': { var it2 = maps.item[a.id]; return { title: (op.fn === 'deleteItem' ? 'Sletning af ' : 'Gendan ') + (it2 ? (TYPE_NAMES[it2.type] || 'post') + ' "' + itemName(it2) + '"' : 'en post'), lines: [] }; }
       case 'updateSettings': return { title: 'Ændring af indstillinger', lines: fieldLines(a.fields) };
+      case 'makeDocument': {
+        var dv = a.vals || {}, dlabel = (BA.docs && BA.docs.SPECS[a.kind] && BA.docs.SPECS[a.kind].label) || 'dokument';
+        return { title: 'PDF: ' + dlabel + ' på ' + carLabel(a.carId), lines: [dv.custName || dv.buyerName ? 'Navn: ' + (dv.custName || dv.buyerName) : '', dv.price ? 'Pris: ' + dv.price + ' kr.' : '', dv.sigCust ? 'Med underskrift' : ''].filter(Boolean) };
+      }
     }
     return { title: op.fn, lines: [] };
   }
@@ -556,6 +587,12 @@
     opts = opts || {};
     g.ops.forEach(function (op, i) {
       op.fails = 0;
+      if (opts.useMine && i === 0 && op.fn === 'addItem' && g.conflicts && g.conflicts.length && op.arg && op.arg.data) {
+        // En ny post med et id, der allerede findes med andet indhold (fx to enheder svarede forskelligt på samme tjekpunkt): "brug min" bliver en rettelse af den eksisterende post.
+        var fields = {}, from = {};
+        g.conflicts.forEach(function (k) { fields[k] = op.arg.data[k]; from[k] = g.vals && g.vals[k] !== undefined ? g.vals[k] : null; });
+        op.fn = 'updateItem'; op.arg = { id: op.arg.id, fields: fields, from: from }; op.fx = { k: 'itemset', id: op.arg.id, fields: fields };
+      }
       if (opts.useMine && i === 0 && op.arg && op.arg.from) Object.keys(g.vals || {}).forEach(function (k) { if (Object.prototype.hasOwnProperty.call(op.arg.from, k)) op.arg.from[k] = g.vals[k] === undefined ? null : g.vals[k]; });
       Q.push(op);
     });
@@ -691,6 +728,37 @@
   BA.store.restoreItem = function (item) {
     enqueue('restoreItem', { id: item.id }, { k: 'itemdel', id: item.id, deleted: false, item: item });
   };
+  /**
+   * Fase 3: lav et dokument som PDF på bilen. Går gennem køen (virker uden net, og underskriften kan ikke tabes). Serveren bygger PDF'en af oplysningerne.
+   * replaceId: et tidligere dokument, der skal erstattes (ellers bliver det gamle liggende). Giver id'et på den nye fil-post.
+   */
+  BA.store.makeDocument = function (carId, kind, vals, replaceId) {
+    var id = U.uid();
+    var arg = { id: id, carId: carId, kind: kind, vals: vals };
+    if (replaceId) arg.replaceId = replaceId;
+    enqueue('makeDocument', arg, { k: 'none' });
+    return id;
+  };
+  /** Dokumenter, der venter på at blive lavet på serveren: [{ id, kind }] (også dem, der ikke kunne gemmes). */
+  BA.store.pendingDocs = function (carId) {
+    var out = [];
+    Q.forEach(function (o) { if (o.fn === 'makeDocument' && o.arg && o.arg.carId === carId) out.push({ id: o.arg.id, kind: o.arg.kind, state: 'wait' }); });
+    Fl.forEach(function (g) { g.ops.forEach(function (o) { if (o.fn === 'makeDocument' && o.arg && o.arg.carId === carId) out.push({ id: o.arg.id, kind: o.arg.kind, state: 'failed' }); }); });
+    return out;
+  };
+  /** Svar på et punkt på en tjekliste (fast id pr. bil+liste+punkt: samme punkt giver altid samme post). state: ok | fejl | ikke | '' (ryd). */
+  BA.store.setTjek = function (carId, list, key, state, note) {
+    var id = BA.docs.tjekId(carId, list, key), cur = maps.item[id];
+    if (cur && !cur.deleted) {
+      var fields = { state: state, at: now() };
+      if (note != null) fields.note = note;
+      return BA.store.updateItem(id, fields);
+    }
+    var item = Object.assign(BA.itemDefaults('tjek'), { list: list, key: key, state: state, note: note || '', at: now() }, { id: id, carId: carId, type: 'tjek', rev: 1, createdAt: now(), createdBy: person(), updatedAt: now(), updatedBy: person() });
+    enqueue('addItem', { id: id, carId: carId, type: 'tjek', data: { list: list, key: key, state: state, note: note || '', at: item.at } }, { k: 'item+', item: item });
+    return true;
+  };
+
   BA.store.updateSettings = function (fields) {
     var from = {}, changed = {}, any = false;
     Object.keys(fields).forEach(function (k) {

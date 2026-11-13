@@ -130,7 +130,7 @@
     var h = '<h1 class="page">Biler på lager <span class="muted" style="font-size:.6em">' + all.length + '</span></h1>' + offlineBanner() + backupWarning(false) +
       '<div class="toolbar"><input type="search" id="q" placeholder="Søg model, reg.nr., stelnr. …" value="' + esc(ui.q) + '" aria-label="Søg"><select id="sortsel" aria-label="Sortér">' +
       BA.options([{ value: 'age', label: 'Længst på lager' }, { value: 'new', label: 'Nyeste først' }, { value: 'profit', label: 'Højest forventet avance' }, { value: 'status', label: 'Efter status' }], ui.sort) + '</select>' +
-      '<a class="btn primary" href="#/ny">+ Ny bil</a></div>' +
+      '<a class="btn" href="#/bytte">Byttebil</a><a class="btn primary" href="#/ny">+ Ny bil</a></div>' +
       '<div class="chips" style="margin-bottom:14px"><button type="button" class="chip big ' + (ui.status ? '' : 'sel') + '" data-status="">Alle ' + all.length + '</button>' +
       stocks.filter(function (s) { return counts[s]; }).map(function (s) { return '<button type="button" class="chip big ' + (ui.status === s ? 'sel' : '') + '" data-status="' + esc(s) + '">' + esc(s) + ' ' + counts[s] + '</button>'; }).join('') + '</div>';
     if (!BA.S.loaded) h += '<div class="cars"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>';
@@ -402,6 +402,7 @@
     if (!draft || (!draftDirty && src !== draftSrc)) { draft = { channels: JSON.parse(JSON.stringify(st.channels || [])), sales: (st.salesChannels || []).join('\n') }; draftSrc = src; draftDirty = false; }
     var h = '<h1 class="page">Mere</h1>' + offlineBanner() + backupWarning(true) +
       '<div class="cols"><div>' + failedCard() +
+      '<div class="card"><div class="hd"><h2>Overblik og økonomi</h2></div><p style="margin:0 0 10px" class="muted">Resultat denne måned, tabel pr. måned, solgte biler, faste udgifter og Excel.</p><div class="row"><a class="btn primary" href="#/overblik">Åbn overblik</a><a class="btn" href="#/bytte">Byttebil-købsaftale</a></div></div>' +
       '<div class="card"><div class="hd"><h2>Denne enhed</h2></div><p style="margin:0 0 10px">Logget ind som <b>' + esc((BA.S.device && BA.S.device.person) || U.safeStore.get('ba.person') || '') + '</b>' + (BA.S.device && BA.S.device.name ? ' på “' + esc(BA.S.device.name) + '”' : '') + '.</p>' +
       '<div class="row"><button class="btn" id="m-newdev" type="button">Tilføj enhed</button><button class="btn danger" id="m-logout" type="button">Log denne enhed ud</button></div><div id="m-code"></div></div>' +
       '<div class="card"><div class="hd"><h2>Mål og regler</h2></div>' +
@@ -412,13 +413,18 @@
       '<div class="grid2"><div class="field"><label for="s-vat">Brugtmoms (%)</label><input id="s-vat" data-s="vat" inputmode="decimal" value="' + esc(U.num(st.vat * 100)) + '"></div>' +
       '<div class="field"><label for="s-sellerName">Sælgerens navn (på papirer)</label><input id="s-sellerName" data-s="sellerName" maxlength="60" value="' + esc(st.sellerName) + '"></div></div>' +
       '<div class="errtxt" id="s-err" role="alert"></div></div>' +
+      '<div class="card"><div class="hd"><h2>To-do og påmindelser</h2></div>' +
+      '<div class="grid2"><div class="field"><label for="s-priceCheckDays">Tjek prisen efter (dage, med komma imellem)</label><input id="s-priceCheckDays" data-s="priceCheckDays" inputmode="numeric" value="' + esc((st.priceCheckDays || [30, 45, 60]).join(', ')) + '"></div>' +
+      '<div class="field"><label for="s-chargeHours">Flyt laderen hver (timer)</label><input id="s-chargeHours" data-s="chargeHours" inputmode="numeric" value="' + esc(st.chargeHours || 48) + '"></div></div>' +
+      '<div class="grid2"><div class="field"><label for="s-morningHour">Morgenbesked på Telegram kl.</label><input id="s-morningHour" data-s="morningHour" inputmode="numeric" value="' + esc(st.morningHour == null ? 8 : st.morningHour) + '"></div></div>' +
+      '<div class="errtxt" role="alert"></div><p class="small muted" id="m-remind" style="margin:0">' + reminderLine() + '</p></div>' +
       '<div class="card"><div class="hd"><h2>Salgskanaler</h2></div><div class="field"><label for="s-sales">Én pr. linje (vises, når du markerer en bil som solgt)</label><textarea id="s-sales" rows="6">' + esc(draft.sales) + '</textarea></div>' +
       '<button class="btn" id="s-savesales" type="button">Gem salgskanaler</button></div>' +
       '</div><div>' +
       '<div class="card"><div class="hd"><h2>Indkøbskanaler og faste omkostninger</h2></div><p class="muted small" style="margin-top:0">Når du opretter en bil, lægges kanalens faste omkostninger automatisk i bilens udgifter. “Starter som Under transport” bruges fx til AutoProff.</p>' +
       draft.channels.map(function (c, i) { return channelEditor(c, i); }).join('') +
       '<div class="row"><button class="btn" id="c-add" type="button">+ Ny kanal</button><button class="btn primary" id="c-save" type="button">Gem kanaler</button></div><div class="errtxt" id="c-err" role="alert"></div></div>' +
-      '<div class="card"><div class="hd"><h2>Om appen</h2></div><p class="small muted" style="margin:0">Bilarkiv · fase 1' + (BA.S.lastSync ? ' · sidst hentet ' + esc(U.fmtTime(BA.S.lastSync)) : '') + '. På iPhone: åbn i Safari → Del → Føj til hjemmeskærm.</p>' +
+      '<div class="card"><div class="hd"><h2>Om appen</h2></div><p class="small muted" style="margin:0">Bilarkiv · fase 2' + (BA.S.lastSync ? ' · sidst hentet ' + esc(U.fmtTime(BA.S.lastSync)) : '') + '. På iPhone: åbn i Safari → Del → Føj til hjemmeskærm.</p>' +
       '<p class="small muted" id="m-about" style="margin:6px 0 0">Server: version ' + esc(BA.S.serverVersion || '?') + (BA.S.serverOld ? ' – <b>skal opdateres</b>' : '') + ' · Sidste backup: ' + (BA.S.backup && BA.S.backup.at ? esc(U.fmtTime(BA.S.backup.at)) : 'ingen endnu') + '.</p>' +
       '<div class="field" style="margin-top:12px"><label for="m-server">Serverens adresse</label><input id="m-server" type="url" inputmode="url" value="' + esc(A.server()) + '"><div class="errtxt" id="m-serr" role="alert"></div></div>' +
       '<div class="row"><button class="btn small" id="m-sync" type="button">Hent nyt nu</button><button class="btn small" id="m-saveserver" type="button">Gem adresse</button></div></div>' +
@@ -427,10 +433,21 @@
     bindMere(root);
   };
 
+  /** Hvad kan man se om Telegram-påmindelserne? (Hentes fra serveren sammen med resten.) */
+  function reminderLine() {
+    var r = BA.S.reminders;
+    if (!r || !r.configured) return 'Telegram er ikke sat op endnu (se INSTALLATION.md, “Fase 2”). Listen under To-do virker alligevel.';
+    if (!r.at) return 'Telegram er sat op, men påmindelserne har ikke kørt endnu. Kør installerPaamindelser i Apps Script.';
+    return 'Påmindelser: sidste kørsel ' + esc(U.fmtTime(r.at)) + (r.ok ? ' ✓' : ' – fejl: ' + esc(r.error || 'ukendt')) + (Date.now() - r.at > 20 * 60000 ? ' – <b>kører ikke lige nu</b>' : '') + '.';
+  }
+  function chanFlag(c, key) { return typeof c[key] === 'boolean' ? c[key] : BA.todo.channelFlag({ channels: [] }, c.name, key); }
+
   function channelEditor(c, i) {
     return '<div class="card" style="background:var(--surface-2)" data-ch="' + i + '"><div class="row between"><div class="field" style="flex:1;margin:0"><label>Navn</label><input data-cf="name" value="' + esc(c.name) + '" maxlength="60"></div>' +
       '<button class="icon-btn del" type="button" data-cdel="' + i + '" aria-label="Fjern kanalen">✕</button></div>' +
       '<label class="check"><input type="checkbox" data-cf="transit"' + (c.transit ? ' checked' : '') + '> Starter som “Under transport”</label>' +
+      '<label class="check"><input type="checkbox" data-cf="dispute"' + (chanFlag(c, 'dispute') ? ' checked' : '') + '> Har tvist-ur (24 timer efter ankomst)</label>' +
+      '<label class="check"><input type="checkbox" data-cf="dereg"' + (chanFlag(c, 'dereg') ? ' checked' : '') + '> Bilen skal afmeldes / omregistreres</label>' +
       c.costs.map(function (x, j) {
         return '<div class="row" style="align-items:flex-end;gap:8px" data-cost="' + j + '"><div class="field" style="flex:2 1 160px;margin:0"><label>Omkostning</label><input data-kf="desc" value="' + esc(x.desc) + '" maxlength="200"></div>' +
           '<div class="field" style="flex:1 1 90px;margin:0"><label>Kategori</label><input data-kf="cat" value="' + esc(x.cat) + '" maxlength="60" list="dl-exp"></div>' +
@@ -445,6 +462,7 @@
     U.$$('[data-ch]', root).forEach(function (box) {
       var i = +box.getAttribute('data-ch'), c = draft.channels[i];
       c.name = $('[data-cf=name]', box).value; c.transit = $('[data-cf=transit]', box).checked;
+      c.dispute = $('[data-cf=dispute]', box).checked; c.dereg = $('[data-cf=dereg]', box).checked;
       c.costs = U.$$('[data-cost]', box).map(function (row) {
         var raw = $('[data-kf=amount]', row).value, n = U.pnum(raw);
         return { desc: $('[data-kf=desc]', row).value, cat: $('[data-kf=cat]', row).value, amount: raw.trim() !== '' && n !== null ? n : raw };
@@ -507,10 +525,19 @@
     // mål og regler: gemmes, når feltet forlades
     U.$$('[data-s]', root).forEach(function (el) {
       el.onchange = function () {
-        var k = el.getAttribute('data-s'), err = $('#s-err', root); err.textContent = '';
+        var k = el.getAttribute('data-s'), err = el.closest('.card').querySelector('.errtxt'); err.textContent = '';
         var val;
         if (k === 'sellerName') val = el.value.trim();
-        else {
+        else if (k === 'priceCheckDays') {
+          var nums = el.value.split(/[,;\s]+/).filter(Boolean).map(U.pnum);
+          if (!nums.length || nums.length > 10 || nums.some(function (n) { return n === null || Math.floor(n) !== n || n < 1 || n > 3650; })) { el.classList.add('invalid'); err.textContent = 'Skriv hele dage med komma imellem, fx 30, 45, 60.'; return; }
+          el.classList.remove('invalid');
+          val = nums.filter(function (n, i) { return nums.indexOf(n) === i; }).sort(function (a, b) { return a - b; });
+        } else if (k === 'chargeHours' || k === 'morningHour') {
+          var hn = U.pnum(el.value), lo = k === 'chargeHours' ? 1 : 0, hi = k === 'chargeHours' ? 240 : 23;
+          if (hn === null || Math.floor(hn) !== hn || hn < lo || hn > hi) { el.classList.add('invalid'); err.textContent = 'Skriv et helt tal mellem ' + lo + ' og ' + hi + '.'; return; }
+          el.classList.remove('invalid'); val = hn;
+        } else {
           var n = U.pnum(el.value);
           if (n === null || n < 0 || (k === 'stockDays' && (Math.floor(n) !== n || n < 1)) || (k === 'vat' && n > 100)) { el.classList.add('invalid'); err.textContent = 'Skriv et gyldigt tal.'; return; }
           el.classList.remove('invalid');
@@ -527,7 +554,7 @@
     };
 
     // kanaler
-    $('#c-add', root).onclick = function () { readChannelDraft(root); draft.channels.push({ name: '', transit: false, costs: [] }); V.mere(root); };
+    $('#c-add', root).onclick = function () { readChannelDraft(root); draft.channels.push({ name: '', transit: false, costs: [], dispute: false, dereg: false }); V.mere(root); };
     U.$$('[data-cdel]', root).forEach(function (b) {
       b.onclick = function () {
         readChannelDraft(root);
@@ -554,7 +581,7 @@
           if (amount === null) { err.textContent = 'Beløbet på “' + desc + '” mangler eller er forkert.'; return; }
           costs.push({ desc: desc, cat: String(x.cat).trim(), amount: amount });
         }
-        out.push({ name: name, transit: !!c.transit, costs: costs });
+        out.push({ name: name, transit: !!c.transit, costs: costs, dispute: !!c.dispute, dereg: !!c.dereg });
       }
       if (!out.length) { err.textContent = 'Der skal være mindst én kanal.'; return; }
       draft = null; draftDirty = false;

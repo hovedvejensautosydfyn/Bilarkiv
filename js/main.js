@@ -13,12 +13,13 @@
   }
 
   function setChrome(logged) {
+    if (!logged) { document.body.classList.remove('has-side'); var sd = $('#side'); if (sd) sd.hidden = true; }
     document.body.classList.toggle('guest', !logged);
     $('#nav').hidden = !logged; $('#tabbar').hidden = !logged; $('#savestate').hidden = !logged; $('#who').hidden = !logged;
   }
 
   function markNav(name) {
-    var group = name === 'bil' ? (BA.store.car(parseRoute().arg) && BA.isSold(BA.store.car(parseRoute().arg).status) ? 'solgte' : 'lager') : name;
+    var group = name === 'bytte' ? 'lager' : name === 'bil' ? (BA.store.car(parseRoute().arg) && BA.isSold(BA.store.car(parseRoute().arg).status) ? 'solgte' : 'lager') : name;
     U.$$('[data-nav]').forEach(function (a) { if (a.getAttribute('data-nav') === group) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
   }
 
@@ -29,6 +30,7 @@
     var r = parseRoute();
     var key = r.name + '/' + r.arg;
     if (r.name !== 'ny' && r.name !== 'bil') BA.views.bilReset();
+    if (r.name !== 'bytte' && BA.views.byttebilReset) BA.views.byttebilReset();
     if (key !== lastRoute) { window.scrollTo(0, 0); lastRoute = key; }
     markNav(r.name);
     var who = (BA.S.device && BA.S.device.person) || U.safeStore.get('ba.person') || '';
@@ -39,9 +41,32 @@
       case 'ny': BA.views.ny(root); break;
       case 'bil': BA.views.bil(root, r.arg); break;
       case 'mere': BA.views.mere(root); break;
+      case 'todo': BA.views.todo(root); break;
+      case 'overblik': BA.views.overblik(root); break;
+      case 'bytte': BA.views.bytte(root); break;
       default: BA.views.lager(root);
     }
+    syncSide();
   }
+
+  /** Sidepanelet med to-do (kun på bred skærm, og kun på lageret og bilsiderne) og tallet på To-do-fanen. */
+  function syncSide() {
+    var side = $('#side'); if (!side) return;
+    var r = parseRoute();
+    var want = A.hasKey() && window.innerWidth >= 1100 && (r.name === 'lager' || r.name === 'bil') && !!BA.views.todoPanel;
+    document.body.classList.toggle('has-side', want);
+    side.hidden = !want;
+    if (want) BA.views.todoPanel(side);
+    if (A.hasKey() && BA.syncTodoBadge) BA.syncTodoBadge();
+  }
+  BA.syncSide = syncSide;
+  window.addEventListener('resize', U.debounce(syncSide, 150));
+  // Tiden går: nedtællinger og "i dag" skal følge med, selv om ingen data ændrer sig.
+  setInterval(function () {
+    if (document.visibilityState !== 'visible' || !A.hasKey()) return;
+    if (parseRoute().name === 'todo') { if (!(BA.views.todoRefresh && BA.views.todoRefresh(root))) route(); }
+    syncSide();
+  }, 60000);
 
   // Når data ændres, tegnes siden om – men aldrig midt i en indtastning.
   var redrawTimer = 0;
@@ -51,9 +76,11 @@
     clearTimeout(redrawTimer);
     redrawTimer = setTimeout(function () {
       if (!A.hasKey()) return;
-      if (r.name === 'bil') { BA.views.bilUpdate(root); markNav('bil'); return; }
-      if (r.name === 'ny') return;                                 // formularen tegnes ikke om af baggrundsopdateringer
-      if (BA.focusInside(root)) { if (document.activeElement.id !== 'q') return; }
+      if (r.name === 'bil') { BA.views.bilUpdate(root); markNav('bil'); syncSide(); return; }
+      if (r.name === 'bytte') { if (BA.syncTodoBadge) BA.syncTodoBadge(); return; }   // byttebil-aftalen tegnes ikke om (underskrifter og tekst må ikke forsvinde)
+      if (r.name === 'ny') { if (BA.syncTodoBadge) BA.syncTodoBadge(); return; }   // formularen tegnes ikke om af baggrundsopdateringer
+      if (r.name === 'todo' && BA.views.todoRefresh && BA.views.todoRefresh(root)) { markNav('todo'); syncSide(); return; }   // kun listerne tegnes om: feltet til nye opgaver beholder sin tekst
+      if (BA.focusInside(root)) { if (document.activeElement.id !== 'q') { syncSide(); return; } }
       route();
     }, 30);
   }
@@ -83,6 +110,7 @@
 
   function start() {
     // Det, telefonen har gemt (kopien af arkivet ligger i IndexedDB), hentes først; derefter tegnes siden.
+    if (BA.cleanDrafts) BA.cleanDrafts();   // kladder (kundeoplysninger, underskrifter) ældre end 14 dage slettes
     BA.store.loadLocal().then(function () {
       var qp = BA.store.queuePerson(), me = U.safeStore.get('ba.person') || '', n = BA.store.queueLength();
       if (n && qp && me && qp !== me) {

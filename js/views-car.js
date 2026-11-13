@@ -23,7 +23,7 @@
   var FORMS = {
     udgift: { title: 'Udgift', fields: [['date', 'Dato', 'date'], ['desc', 'Hvad er pengene brugt på?', 'text', { req: 1, max: 200 }], ['cat', 'Kategori', 'text', { list: CATS.udgift, max: 60 }], ['amount', 'Beløb ex. moms (kr)', 'money', { req: 1 }]] },
     time: { title: 'Timer', fields: [['date', 'Dato', 'date'], ['desc', 'Hvad lavede du?', 'text', { max: 200 }], ['cat', 'Kategori', 'text', { list: CATS.time, max: 60 }], ['hours', 'Timer', 'hours', { req: 1 }]] },
-    reklamation: { title: 'Reklamation', fields: [['date', 'Dato', 'date'], ['desc', 'Problem', 'text', { req: 1, max: 300 }], ['type', 'Fejltype', 'text', { list: CATS.claim, max: 60 }], ['fix', 'Løsning / hvem lavede det', 'text', { max: 300 }],
+    reklamation: { title: 'Reklamation', fields: [['date', 'Dato', 'date'], ['desc', 'Problem', 'text', { req: 1, max: 300 }], ['ctype', 'Fejltype', 'text', { list: CATS.claim, max: 60 }], ['fix', 'Løsning / hvem lavede det', 'text', { max: 300 }],
       ['kind', 'Afregning', 'select', { options: [{ value: '', label: 'Reparation (beløb ex. moms)' }, { value: 'Afslag i pris', label: 'Afslag i pris (sænker også brugtmomsen)' }] }], ['amount', 'Beløb (kr)', 'money']] },
     opgave: { title: 'Opgave', fields: [['text', 'Hvad skal laves?', 'text', { req: 1, max: 200 }], ['who', 'Hvem laver den?', 'select', { options: [{ value: '', label: 'Ikke bestemt' }, { value: 'selv', label: 'Selv' }, { value: 'værksted', label: 'Værksted' }] }],
       ['expPrice', 'Forventet pris (kr)', 'money'], ['expHours', 'Forventede timer', 'hours'], ['done', 'Er opgaven lavet?', 'check'], ['actPrice', 'Faktisk pris (kr)', 'money'], ['actHours', 'Faktiske timer', 'hours']] },
@@ -57,7 +57,7 @@
       var form = $('form', box);
       var descEl = $('[data-k=desc]', box), catEl = $('[data-k=cat]', box);
       if (descEl && catEl) descEl.onblur = function () { if (!catEl.value.trim()) { var g = guess(type === 'reklamation' ? CLAIM_RULES : EXP_RULES, descEl.value); if (g) catEl.value = g; } };
-      if (type === 'reklamation') { var d2 = $('[data-k=desc]', box), t2 = $('[data-k=type]', box); d2.onblur = function () { if (!t2.value.trim()) { var g = guess(CLAIM_RULES, d2.value); if (g) t2.value = g; } }; }
+      if (type === 'reklamation') { var d2 = $('[data-k=desc]', box), t2 = $('[data-k=ctype]', box); d2.onblur = function () { if (!t2.value.trim()) { var g = guess(CLAIM_RULES, d2.value); if (g) t2.value = g; } }; }
       $('[data-cancel]', box).onclick = function () { close(); };
       var del = $('[data-del]', box);
       if (del) del.onclick = function () { close(); confirmDelete(item, FORMS[type].title.toLowerCase()); };
@@ -119,8 +119,10 @@
     { id: 's-equip', col: 1, render: equipSec },
     { id: 's-defects', col: 1, render: defectsSec },
     { id: 's-tasks', col: 1, render: tasksSec },
+    { id: 's-remind', col: 1, render: remindSec, only: 'stock' },
     { id: 's-photos', col: 2, render: photosSec },
     { id: 's-docs', col: 2, render: docsSec },
+    { id: 's-fase3', col: 2, render: function (car) { return BA.docsCarSection ? BA.docsCarSection(car) : ''; } },
     { id: 's-exp', col: 2, render: expSec, collapsible: 'exp' },
     { id: 's-hours', col: 2, render: hoursSec, collapsible: 'hours' },
     { id: 's-claims', col: 2, render: claimsSec, only: 'sold', collapsible: 'claims' },
@@ -223,6 +225,9 @@
     }).join('') : '<p class="muted small" style="margin:0">Ingen fejl eller mangler noteret.</p>') + uploadRows(uploads);
   }
 
+  // ----- påmindelser (fase 2: laderen, bookinger, åbne to-do-linjer for bilen) -----
+  function remindSec(car) { return BA.todoCarSection ? BA.todoCarSection(car) : ''; }
+
   // ----- opgaver -----
   function tasksSec(car) {
     var list = itemsOf(car, 'opgave').sort(function (a, b) { return (a.done ? 1 : 0) - (b.done ? 1 : 0) || byCreated(a, b); });
@@ -305,7 +310,7 @@
     var list = itemsOf(car, 'reklamation').sort(byCreated);
     var r = BA.calc(car, BA.S.items, BA.S.settings);
     return toggleHead('claims', 'Reklamationer', list.length ? list.length + ' · ' + U.kr(r.claims) : 0) + '<div class="bd">' + (list.length ? '<table class="lines"><thead><tr><th>Dato</th><th>Problem</th><th class="r">Beløb</th></tr></thead><tbody>' + list.map(function (x) {
-      return '<tr class="click" tabindex="0" data-act="claim-edit" data-id="' + esc(x.id) + '"><td>' + esc(U.fmtDate(x.date)) + '</td><td>' + esc(x.desc) + '<div class="muted small">' + esc([x.type, x.kind, x.fix].filter(Boolean).join(' · ')) + '</div></td><td class="r">' + U.kr(x.amount) + '</td></tr>';
+      return '<tr class="click" tabindex="0" data-act="claim-edit" data-id="' + esc(x.id) + '"><td>' + esc(U.fmtDate(x.date)) + '</td><td>' + esc(x.desc) + '<div class="muted small">' + esc([x.ctype, x.kind, x.fix].filter(Boolean).join(' · ')) + '</div></td><td class="r">' + U.kr(x.amount) + '</td></tr>';
     }).join('') + '</tbody></table>' : '<p class="muted small" style="margin:0 0 8px">Ingen reklamationer.</p>') +
       '<button class="btn small" type="button" data-act="claim-new" style="margin-top:10px">+ Tilføj reklamation</button></div>';
   }
@@ -358,7 +363,7 @@
     var sold = BA.isSold(car.status);
     var cols = [[], []];
     SECTIONS.forEach(function (s) {
-      cols[s.col - 1].push('<section class="card' + (s.collapsible ? ' collapsible' + (openFlags[s.collapsible] ? ' open' : '') : '') + '" id="' + s.id + '"' + (s.only === 'sold' && !sold ? ' hidden' : '') + '><div data-body></div>' + (FOOT[s.id] || '') + '</section>');
+      cols[s.col - 1].push('<section class="card' + (s.collapsible ? ' collapsible' + (openFlags[s.collapsible] ? ' open' : '') : '') + '" id="' + s.id + '"' + ((s.only === 'sold' && !sold) || (s.only === 'stock' && sold) ? ' hidden' : '') + '><div data-body></div>' + (FOOT[s.id] || '') + '</section>');
     });
     return '<a class="crumb" href="' + (sold ? '#/solgte' : '#/lager') + '">‹ ' + (sold ? 'Solgte biler' : 'Biler på lager') + '</a>' + BA.offlineBanner() +
       '<div id="c-head"></div><div id="c-steps"></div><div class="cols"><div>' + cols[0].join('') + '</div><div>' + cols[1].join('') + '</div></div>';
@@ -617,6 +622,8 @@
     var act = el.getAttribute('data-act'), id = el.getAttribute('data-id');
     var car = BA.store.car(page.id); if (!car) return;
     var item = id ? BA.store.item(id) : null;
+    if (BA.todoCarAct && BA.todoCarAct(act, car, el)) return;
+    if (BA.docsCarAct && BA.docsCarAct(act, car, el)) return;
     switch (act) {
       case 'step': setStatus(car, el.getAttribute('data-status')); break;
       case 'sell': openSale(car); break;
@@ -689,6 +696,7 @@
   }
 
   function bindPage(root) {
+    if (BA.todoBind) BA.todoBind(root);      // knapperne i bilens påmindelser (✓ Ladet, ✓ Pris tjekket …)
     if (root.__baBound) return;
     root.__baBound = true;
     root.addEventListener('click', function (e) {

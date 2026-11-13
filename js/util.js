@@ -18,10 +18,8 @@
     return out;
   };
 
-  U.today = function () {
-    var d = new Date();
-    return d.getFullYear() + '-' + U.pad(d.getMonth() + 1) + '-' + U.pad(d.getDate());
-  };
+  /** Dagens dato i dansk tid (samme som serverens), uanset hvor telefonen tror, den er. Uden Intl: telefonens dato. */
+  U.today = function () { return U.local(Date.now()).slice(0, 10); };
 
   U.daysBetween = function (a, b) {
     if (!a || !b) return null;
@@ -32,7 +30,7 @@
   U.pnum = function (v) {
     if (v == null) return null;
     if (typeof v === 'number') return isFinite(v) ? v : null;
-    var s = String(v).trim().replace(/\s|kr\.?|km/gi, '');
+    var s = String(v).trim().replace(/\s|kr\.?|km/gi, '').replace(/,[-–]+$/, '');   // "45.000,-" og "45.000 kr"
     if (!s) return null;
     if (s.indexOf(',') >= 0) s = s.replace(/\./g, '').replace(',', '.');
     else if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
@@ -47,12 +45,43 @@
   U.kr = function (v) { return v == null || !isFinite(v) ? '–' : nf.format(Math.round(v)) + ' kr'; };
   U.fmtN = function (v) { return v == null || v === '' || !isFinite(v) ? '' : nf.format(v); };
   U.fmtDate = function (s) { if (!s) return '–'; var p = String(s).split('-'); return p.length === 3 ? p[2] + '-' + p[1] + '-' + p[0] : s; };
-  U.fmtTime = function (ms) {
-    if (!ms) return '';
-    var d = new Date(ms);
-    return U.pad(d.getDate()) + '-' + U.pad(d.getMonth() + 1) + '-' + d.getFullYear() + ' ' + U.pad(d.getHours()) + ':' + U.pad(d.getMinutes());
-  };
+  U.fmtTime = function (ms) { return ms ? U.fmtLocal(ms) : ''; };   // dansk tid (se U.local)
   U.hours = function (v) { return v == null ? '–' : nf2.format(v) + ' t'; };
+
+  // ---------- dansk tid (uanset hvor telefonen tror, den er) ----------
+  var tzf = null;
+  try { tzf = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Copenhagen', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }); } catch (e) { tzf = null; }
+  /**
+   * Millisekunder -> 'YYYY-MM-DD HH:MM' i dansk tid. (Samme form som serverens ctx.local, så to-do-reglerne giver det samme begge steder.)
+   * Mangler Intl eller tidszonen i telefonen (meget gamle enheder), bruges telefonens egen tid i stedet: det er bedre end en fejl.
+   */
+  U.local = function (ms) {
+    if (tzf && !U.noIntl) {
+      try {
+        var o = {};
+        tzf.formatToParts(new Date(ms)).forEach(function (p) { o[p.type] = p.value; });
+        if (o.year && o.hour) return o.year + '-' + o.month + '-' + o.day + ' ' + (o.hour === '24' ? '00' : o.hour) + ':' + o.minute;
+      } catch (e) { /* reserve herunder */ }
+    }
+    var d = new Date(ms);
+    return d.getFullYear() + '-' + U.pad(d.getMonth() + 1) + '-' + U.pad(d.getDate()) + ' ' + U.pad(d.getHours()) + ':' + U.pad(d.getMinutes());
+  };
+  /** Millisekunder -> 'dd-mm-yyyy hh:mm' i dansk tid. */
+  U.fmtLocal = function (ms) { var l = U.local(ms); return l.slice(8, 10) + '-' + l.slice(5, 7) + '-' + l.slice(0, 4) + ' ' + l.slice(11); };
+  /** Dato 'YYYY-MM-DD' og klokkeslæt 'HH:MM' (dansk tid) -> millisekunder. Giver null, hvis det ikke er et gyldigt tidspunkt. */
+  U.localToMs = function (date, time) {
+    var d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date || ''), t = /^(\d{1,2}):(\d{2})$/.exec(time || '');
+    if (!d || !t || +t[1] > 23 || +t[2] > 59) return null;
+    var guess = Date.UTC(+d[1], +d[2] - 1, +d[3], +t[1], +t[2]);
+    for (var i = 0; i < 3; i++) {
+      var l = U.local(guess), m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/.exec(l);
+      var shown = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+      var want = Date.UTC(+d[1], +d[2] - 1, +d[3], +t[1], +t[2]);
+      if (shown === want) { return U.local(guess).slice(0, 10) === date ? guess : null; }
+      guess += want - shown;
+    }
+    return null;   // et klokkeslæt, der ikke findes (sommertidens spring)
+  };
 
   U.plate = function (reg, large) {
     if (!reg) return '<span class="chip">Ingen reg.nr.</span>';
@@ -127,7 +156,7 @@
     if (status === 'Annonceret') return 'acc';
     return '';
   };
-  BA.DOC_KINDS = ['Slutseddel', 'Køreseddel', 'Fuldmagt', 'Købsfaktura', 'Registreringsattest', 'Synsrapport', 'Servicebog', 'Værkstedsfaktura', 'Andet'];
+  BA.DOC_KINDS = ['Slutseddel', 'Byttebil-slutseddel', 'Køreseddel', 'Fuldmagt', 'Købsfaktura', 'Registreringsattest', 'Synsrapport', 'Servicebog', 'Værkstedsfaktura', 'Andet'];
   BA.MAX_PROFIT_HINT = 20000;
 
   // ---------- beregninger (som calc() i det gamle Bilarkiv) ----------
