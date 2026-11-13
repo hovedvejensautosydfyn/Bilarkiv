@@ -1,6 +1,6 @@
 ﻿// Gemmer appens egne filer, så appen kan åbnes uden internet. Altid nettet først (så opdateringer kommer med det samme), ellers den gemte udgave.
 // Kald til serveren (script.google.com) gemmes aldrig.
-var CACHE = 'bilarkiv-app-v14';
+var CACHE = 'bilarkiv-app-v15';
 var FILES = ['./', 'index.html', 'app.css', 'config.js', 'manifest.webmanifest', 'js/util.js', 'js/docs.js', 'js/todo.js', 'js/ui.js', 'js/store.js', 'js/images.js', 'js/views-list.js', 'js/views-car.js', 'js/views-todo.js', 'js/ad.js', 'js/econ.js', 'js/views-docs.js', 'js/views-bytte.js', 'js/views-econ.js', 'js/main.js', 'icons/logo-hvid.png', 'icons/ikon2-180.png', 'icons/ikon2-192.png'];
 
 self.addEventListener('install', function (e) {
@@ -19,6 +19,8 @@ self.addEventListener('fetch', function (e) {
   if (req.method !== 'GET') return;
   var url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
+  // Manifestet og ikonerne hentes af browseren selv (ved installation); dem blander vi os ikke i.
+  if (/manifest\.webmanifest$/.test(url.pathname) || url.pathname.indexOf('/icons/') >= 0) return;
   e.respondWith(fetch(req).then(function (res) {
     if (res && res.ok) {
       var copy = res.clone();

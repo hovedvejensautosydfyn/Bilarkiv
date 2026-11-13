@@ -2,7 +2,7 @@
   "name": "Bilarkiv",
   "short_name": "Bilarkiv",
   "description": "Bilarkiv – Hovedvejens Auto Sydfyn",
-  "id": "./",
+  "id": "/Bilarkiv/",
   "lang": "da",
   "start_url": "./",
   "scope": "./",
