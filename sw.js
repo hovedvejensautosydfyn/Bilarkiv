@@ -1,7 +1,7 @@
-﻿// Gemmer appens egne filer, så appen kan åbnes uden internet. Altid nettet først (så opdateringer kommer med det samme), ellers den gemte udgave.
+// Gemmer appens egne filer, så appen kan åbnes uden internet. Altid nettet først (så opdateringer kommer med det samme), ellers den gemte udgave.
 // Kald til serveren (script.google.com) gemmes aldrig.
-var CACHE = 'bilarkiv-app-v15';
-var FILES = ['./', 'index.html', 'app.css', 'config.js', 'manifest.webmanifest', 'js/util.js', 'js/docs.js', 'js/todo.js', 'js/ui.js', 'js/store.js', 'js/images.js', 'js/views-list.js', 'js/views-car.js', 'js/views-todo.js', 'js/ad.js', 'js/econ.js', 'js/views-docs.js', 'js/views-bytte.js', 'js/views-econ.js', 'js/main.js', 'icons/logo-hvid.png', 'icons/ikon2-180.png', 'icons/ikon2-192.png'];
+var CACHE = 'bilarkiv-app-v16';
+var FILES = ['./', 'index.html', 'app.css', 'config.js', 'manifest.webmanifest', 'js/util.js', 'js/docs.js', 'js/todo.js', 'js/ui.js', 'js/store.js', 'js/images.js', 'js/views-list.js', 'js/views-car.js', 'js/views-todo.js', 'js/ad.js', 'js/econ.js', 'js/views-docs.js', 'js/views-bytte.js', 'js/views-econ.js', 'js/main.js', 'icons/logo-hvid.png', 'icons/ikon3-180.png', 'icons/ikon3-192.png'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(FILES); }).then(function () { return self.skipWaiting(); }));
