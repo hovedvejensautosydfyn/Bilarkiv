@@ -17,7 +17,7 @@
   var LS = { key: 'ba.key', server: 'ba.server', person: 'ba.person', cacheOld: 'ba.cache.v1', queue: 'ba.queue.v1', failed: 'ba.failed.v1', qperson: 'ba.queue.person' };
   var TIMEOUT_MS = 45000, UPLOAD_TIMEOUT_MS = 180000;
   /** Laveste serverversion, appen kan arbejde sammen med (Code.gs: SERVER_VERSION). */
-  var NEEDS_SERVER = 5;
+  var NEEDS_SERVER = 6;
   var FULL_EVERY_MS = 10 * 60 * 1000, OVERLAP_MS = 60000, MAX_SERVER_FAILS = 8;
 
   // ---------------------------------------------------------------------------
@@ -199,6 +199,10 @@
         break;
       case 'cover':
         c = v.cm[fx.id]; if (c) c.cover = fx.cover;
+        break;
+      case 'web':
+        c = v.cm[fx.id];
+        if (c) { var exw = {}; Object.keys(c.extra || {}).forEach(function (k) { exw[k] = c.extra[k]; }); if (fx.web) exw.web = clone(fx.web); else delete exw.web; c.extra = exw; }
         break;
       case 'sign':
         c = v.cm[fx.id];
@@ -422,6 +426,7 @@
         if (res.car) upsertCar(res.car);
         break;
       case 'makeSign': upsertItem(res.item); if (res.car) upsertCar(res.car); break;
+      case 'setWebLink': upsertCar(res.car); break;
     }
     if (op.fn === 'restoreCar' && res.car) {
       // Bilens poster kom ikke med: hent dem igen (serveren sender alle poster på en bil, der er ændret).
@@ -536,6 +541,7 @@
         var dv = a.vals || {}, dlabel = (BA.docs && BA.docs.SPECS[a.kind] && BA.docs.SPECS[a.kind].label) || 'dokument';
         return { title: 'PDF: ' + dlabel + ' på ' + carLabel(a.carId), lines: [dv.custName || dv.buyerName ? 'Navn: ' + (dv.custName || dv.buyerName) : '', dv.price ? 'Pris: ' + dv.price + ' kr.' : '', dv.sigCust ? 'Med underskrift' : ''].filter(Boolean) };
       }
+      case 'setWebLink': return { title: 'Kobling til h-auto.dk for ' + carLabel(a.id), lines: [a.web ? 'Bil på h-auto.dk: ' + a.web.id + (a.web.name ? ' (' + a.web.name + ')' : '') : 'Koblingen fjernes'] };
       case 'makeSign': return { title: 'Prisskilt på ' + carLabel(a.carId), lines: ['Pris: ' + U.kr(a.price), 'VIGTIGT: QR-koden på det printede skilt virker først, når dette er gemt. Tryk Send igen.', 'Sletter du det, virker QR-koden på skiltet aldrig – så skal du printe et nyt skilt.'] };
     }
     return { title: op.fn, lines: [] };
@@ -764,6 +770,12 @@
     var t = now(), sign = { codes: codes, opts: clone(opts), price: price, at: t, madeAt: t, file: id, by: person() };
     enqueue('makeSign', { id: id, carId: carId, code: code, opts: opts, price: price, madeAt: t, data: pdfBase64 }, { k: 'sign', id: carId, sign: sign });
     return id;
+  };
+  /** Kobler bilen til dens side på h-auto.dk (web = { id, mode, name } eller null). Går gennem køen; vises med det samme. */
+  BA.store.setWebLink = function (carId, web) {
+    var send = web ? { id: web.id, mode: web.mode, name: String(web.name || '').slice(0, 120) } : null;
+    var shown = web ? { id: web.id, mode: web.mode, name: send.name, at: now(), by: person() } : null;
+    enqueue('setWebLink', { id: carId, web: send }, { k: 'web', id: carId, web: shown });
   };
   /** Kender serveren koden (står den på bilen, som serveren sidst sendte – ikke kun i telefonens overlejring)? */
   BA.store.signCodeSaved = function (carId, code) {

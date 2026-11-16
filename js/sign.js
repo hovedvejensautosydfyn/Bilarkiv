@@ -551,6 +551,85 @@ var SIGN_ = (function () {
   }
 
   // ---------------------------------------------------------------------------
+  // h-auto.dk: bilens side på hjemmesiden (billeder, beskrivelse og data fra AutoDesktop/Bilinfo)
+  // ---------------------------------------------------------------------------
+  var WEB_LIST_URL = 'https://h-auto.dk/biler-til-salg/';
+  var WEB_CAR_URL = 'https://h-auto.dk/biler-til-salg/?easyvehicleid=';
+  var WEB_ID_RE = /^AD\d{4,12}$/;
+  var WEB_MODES = ['redirect', 'button'];
+  var WEB_MODE_NAMES = { redirect: 'Send kunden direkte til h-auto.dk', button: 'Vis vores side med en knap til h-auto.dk' };
+  function webUrl(id) { return WEB_ID_RE.test(String(id || '')) ? WEB_CAR_URL + id : ''; }
+  function htmlText(s) {
+    return clean(String(s || '').replace(/<[^>]*>/g, ' ').replace(/&#(\d+);/g, function (m, n) { return String.fromCharCode(+n); }).replace(/&#x([0-9a-f]+);/gi, function (m, n) { return String.fromCharCode(parseInt(n, 16)); })
+      .replace(/&(aelig|oslash|aring|AElig|Oslash|Aring|eacute|Eacute|uuml|ouml|auml|Uuml|Ouml|Auml|ndash|mdash);/g, function (m, n) {
+        return { aelig: 'æ', oslash: 'ø', aring: 'å', AElig: 'Æ', Oslash: 'Ø', Aring: 'Å', eacute: 'é', Eacute: 'É', uuml: 'ü', ouml: 'ö', auml: 'ä', Uuml: 'Ü', Ouml: 'Ö', Auml: 'Ä', ndash: '–', mdash: '—' }[n];
+      })
+      .replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"').replace(/&#039;|&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'));
+  }
+  /**
+   * Bilerne på h-auto.dk/biler-til-salg/: [{ id: 'AD5727280', name: 'VW Polo 1,2 TSI …', price: 89900 }].
+   * Læser hjemmesidens liste over alle biler (links med easyvehicleid). Navn og pris tages fra linkteksten ("Navn – 89.900 kr."), ellers fra JSON-LD.
+   */
+  function parseWebList(html) {
+    html = String(html || '');
+    var out = [], byId = {}, re = /<a\b[^>]*href="[^"]*[?&]easyvehicleid=(AD\d{4,12})"[^>]*>([\s\S]*?)<\/a>/gi, m;
+    while ((m = re.exec(html))) {
+      var id = m[1], txt = htmlText(m[2]), name = txt, price = 0;
+      var pm = /^(.*?)\s*[–-]\s*([\d.]+)\s*kr\.?$/i.exec(txt);
+      if (pm) { name = clean(pm[1]); price = +pm[2].replace(/\./g, '') || 0; }
+      if (!name || /^se bilen/i.test(name) || name.length < 3) name = '';
+      if (!byId[id]) { byId[id] = { id: id, name: name, price: price }; out.push(byId[id]); }
+      else { if (!byId[id].name && name) byId[id].name = name; if (!byId[id].price && price) byId[id].price = price; }
+    }
+    // Navne fra JSON-LD (schema.org ItemList), hvis linkteksten ikke havde dem
+    var ld = /<script[^>]*application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi, b;
+    while ((b = ld.exec(html))) {
+      var o = null; try { o = JSON.parse(b[1]); } catch (e) { o = null; }
+      var items = o && o.itemListElement && o.itemListElement.length ? o.itemListElement : [];
+      for (var i = 0; i < items.length; i++) {
+        var im = /[?&]easyvehicleid=(AD\d{4,12})/.exec(String(items[i] && items[i].url || ''));
+        if (!im) continue;
+        var nm = clean(items[i].name, 200);
+        if (!byId[im[1]]) { byId[im[1]] = { id: im[1], name: nm, price: 0 }; out.push(byId[im[1]]); }
+        else if (!byId[im[1]].name) byId[im[1]].name = nm;
+      }
+    }
+    return out.filter(function (x) { return x.name; }).slice(0, 300);
+  }
+  function words(s) {
+    s = clean(s).toLowerCase();
+    if (s.normalize) s = s.replace(/[æøå]/g, function (c) { return { 'æ': '\u0001', 'ø': '\u0002', 'å': '\u0003' }[c]; }).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[\u0001-\u0003]/g, function (c) { return { '\u0001': 'æ', '\u0002': 'ø', '\u0003': 'å' }[c]; });
+    s = s.replace(/mercedes[- ]benz/g, 'mercedes').replace(/volkswagen/g, 'vw');
+    return s.replace(/[^a-z0-9æøå,.]+/g, ' ').split(' ').filter(function (w) { return w.length >= 2 || /^\d$/.test(w); });
+  }
+  /**
+   * Bilerne på hjemmesiden sorteret efter, hvor godt de passer til bilen: [{ id, name, price, score }]. score ≥ 5 = et godt forslag.
+   * Modellen (første ord efter mærket, fx "polo", "i20") SKAL stå i navnet – ellers højst 4 point, så samme mærke + samme pris aldrig giver et forkert forslag.
+   */
+  function matchWeb(car, list) {
+    car = car || {};
+    var cw = words([car.model, car.variant].join(' ')), price = num(car.listPrice);
+    var make = cw[0] || '', model = cw[1] || '';
+    return (list || []).map(function (x) {
+      var ww = words(x.name), s = 0, has = function (w) { return ww.indexOf(w) >= 0 || ww.indexOf(w.replace('.', ',')) >= 0; };
+      if (make && ww[0] === make) s += 2;
+      cw.slice(1).forEach(function (w) { if (has(w)) s += 1; });
+      if (price > 0 && x.price === price) s += 4;
+      if (!model || !has(model)) s = Math.min(s, 4);
+      return { id: x.id, name: x.name, price: x.price, score: s };
+    }).sort(function (a, b) { return b.score - a.score || (a.name < b.name ? -1 : 1); });
+  }
+  /** Renser en kobling: { id, mode } eller null (ingen kobling). Giver { web } eller { error }. */
+  function cleanWeb(w) {
+    if (w == null || w === '') return { web: null };
+    if (typeof w !== 'object' || Array.isArray(w)) return { error: 'Koblingen til h-auto.dk kan ikke læses.' };
+    var id = String(w.id || ''), mode = String(w.mode || 'redirect');
+    if (!WEB_ID_RE.test(id)) return { error: 'Bilens nummer på h-auto.dk ser forkert ud.' };
+    if (WEB_MODES.indexOf(mode) < 0) return { error: 'Ukendt valg for kundesiden.' };
+    return { web: { id: id, mode: mode, name: htmlText(w.name).slice(0, 120) } };
+  }
+
+  // ---------------------------------------------------------------------------
   // Kundesiden: kun salgsoplysninger
   // ---------------------------------------------------------------------------
   var SOLD_STATUSES = ['Solgt', 'Udleveret', 'Reklamation'];
@@ -570,8 +649,10 @@ var SIGN_ = (function () {
     var all = badges(car, udstyr, o, today), byKey = {};
     all.forEach(function (b) { byKey[b.key] = b.text; });
     var eq = suggestEquipment(udstyr);
+    // Bilens side på h-auto.dk (adressen bygges altid her af et gyldigt nummer – aldrig en fri adresse)
+    var wc = cleanWeb(car.extra && car.extra.web), web = wc.web ? { url: webUrl(wc.web.id), mode: wc.web.mode } : null;
     return {
-      ok: true, sold: false, firm: f,
+      ok: true, sold: false, firm: f, web: web,
       car: {
         model: clean(car.model, 100), variant: titleOf(car) === clean(car.model) ? '' : clean(car.variant, 100), year: num(car.year) || '', km: num(car.km) || 0, fuel: clean(car.fuel, 40), color: clean(car.color, 40),
         hk: o.hk || '', price: num(car.listPrice) || 0, label: LABEL_NAMES[o.label] && o.label ? LABEL_NAMES[o.label] : '',
@@ -586,7 +667,8 @@ var SIGN_ = (function () {
     MAX_BADGES: MAX_BADGES, WARN_BADGES: WARN_BADGES, MAX_EQUIP: MAX_EQUIP, PAGE_W: PAGE_W, PAGE_H: PAGE_H, MIN_PRICE_MM: MIN_PRICE_MM, titleOf: titleOf,
     newCode: newCode, validCode: validCode, url: url, badges: badges, suggestEquipment: suggestEquipment, defaultEquipment: defaultEquipment, clean: cleanOpts,
     printable: printable, textWidth: textWidth, fit: fit, priceText: priceText, fmtInt: fmtInt,
-    qr: qr, gfMul: gfMul, layout: layout, toSvg: toSvg, toPdf: toPdf, publicView: publicView, publicFirm: publicFirm
+    qr: qr, gfMul: gfMul, layout: layout, toSvg: toSvg, toPdf: toPdf, publicView: publicView, publicFirm: publicFirm,
+    WEB_LIST_URL: WEB_LIST_URL, WEB_MODES: WEB_MODES, WEB_MODE_NAMES: WEB_MODE_NAMES, webUrl: webUrl, parseWebList: parseWebList, matchWeb: matchWeb, cleanWeb: cleanWeb
   };
 })();
 if (typeof window !== 'undefined' && window.BA) window.BA.sign = SIGN_;

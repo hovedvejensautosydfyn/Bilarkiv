@@ -39,10 +39,24 @@
     main.appendChild(m); main.appendChild(contact(firm || FALLBACK_FIRM));
   }
 
+  // Kun bilens side på h-auto.dk må åbnes herfra (aldrig en vilkårlig adresse)
+  var WEB_RE = /^https:\/\/h-auto\.dk\/biler-til-salg\/\?easyvehicleid=AD\d{4,12}$/;
+  var go = function (url) { location.replace(url); };
+
   function show(res) {
     var firm = res.firm && res.firm.phone ? res.firm : FALLBACK_FIRM;
     if (res.sold) { document.title = 'Solgt – ' + (firm.name || ''); message('Denne bil er solgt', 'Ring og hør om vores andre biler – vi har jævnligt nye biler på lager.', firm); return; }
     var car = res.car || {};
+    var web = res.web && WEB_RE.test(String(res.web.url || '')) ? res.web : null;
+    if (web && web.mode === 'redirect') {
+      // Send kunden direkte til bilens side på hjemmesiden (alle billeder og hele beskrivelsen)
+      main.innerHTML = '';
+      var r = el('div', 'card msg'); r.appendChild(el('h1', '', car.model || 'Bilen'));
+      var p0 = el('p', 'info', 'Viser bilen på h-auto.dk … '); var a0 = el('a', '', 'Tryk her, hvis der ikke sker noget'); a0.href = web.url; p0.appendChild(a0); r.appendChild(p0);
+      main.appendChild(r); main.appendChild(contact(firm));
+      go(web.url);
+      return;
+    }
     var name = [car.model, car.variant].filter(Boolean).join(' ');
     document.title = (car.model || 'Bil') + ' – ' + (firm.name || '');
     main.innerHTML = '';
@@ -51,6 +65,7 @@
     c.appendChild(el('h1', '', car.model || 'Bil'));
     if (car.variant) c.appendChild(el('p', 'variant', car.variant));
     if (car.price > 0) { var p = el('p', 'price', fmtInt(car.price)); p.appendChild(el('small', '', 'kr.')); c.appendChild(p); }
+    if (web) { var wb = el('a', 'btn main webbtn', '📸 Se alle billeder og hele beskrivelsen'); wb.href = web.url; c.appendChild(wb); }
     var facts = el('div', 'facts');
     [['Årgang', car.year], ['Kilometer', car.km > 0 ? fmtInt(car.km) + ' km' : ''], ['Brændstof', car.fuel], ['Farve', car.color], ['HK', car.hk ? car.hk + ' hk' : '']].forEach(function (f) {
       if (!f[1]) return;
@@ -69,7 +84,7 @@
     main.appendChild(f);
   }
 
-  window.KUNDE_TEST = { show: show, message: message, fallback: FALLBACK_FIRM };   // kun til testene (test/app-ui-tests.html)
+  window.KUNDE_TEST = { show: show, message: message, fallback: FALLBACK_FIRM, setGo: function (fn) { go = fn; } };   // kun til testene (test/app-ui-tests.html)
 
   var k = '';
   try { k = new URLSearchParams(location.search).get('k') || ''; } catch (e) { k = ''; }

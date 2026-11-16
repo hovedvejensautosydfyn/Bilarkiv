@@ -80,6 +80,8 @@
     });
     if (s && s.price) {
       var changed = +car.listPrice > 0 && +car.listPrice !== +s.price;
+      var wl = car.extra && car.extra.web;
+      if (wl && wl.id) h += '<div class="muted small" style="margin-top:6px">QR-koden: ' + (wl.mode === 'redirect' ? 'sender kunden direkte til bilens side på h-auto.dk' : 'kundesiden har en knap til h-auto.dk') + '</div>';
       h += '<div class="muted small" style="margin-top:6px">Sidste prisskilt: ' + esc(U.fmtLocal(s.at)) + ', ' + esc(SG().priceText(s.price)) + (changed ? ' · <span class="neg">prisen er ændret – print et nyt</span>' : '') + '</div>';
     }
     return h;
@@ -102,6 +104,7 @@
       '<div class="docgrp"><h4>Udstyr på skiltet <span class="muted small" id="sg-ecount"></span></h4>' +
         (sorted.length ? '<div class="signeq" id="sg-equip">' + sorted.map(function (n, i) { return '<label class="check"><input type="checkbox" data-eq="' + i + '"><span>' + esc(n) + '</span></label>'; }).join('') + '</div>'
           : '<p class="muted small" style="margin:0">Bilen har intet udstyr endnu. Tilføj det under Udstyr på bilen.</p>') + '</div>' +
+      '<div class="docgrp" id="sg-web"><h4>Kundesiden (når QR-koden scannes)</h4><div id="sg-webbody" aria-live="polite"><span class="muted small">Henter bilerne på h-auto.dk …</span></div></div>' +
       '<div class="errtxt" id="sg-warn" aria-live="polite"></div>' +
       '<p class="muted small" style="margin:8px 0 0">QR-koden fører til kundesiden: <a href="' + esc(SG().url(code)) + '" target="_blank" rel="noopener">' + esc(SG().url(code).replace(/^https:\/\//, '')) + '</a>' +
         (codeSaved(car, code) ? '' : ' <span id="sg-notyet">(virker, når skiltet er lavet og gemt på bilen – telefonen skal have net)</span>') + '</p>' +
@@ -187,6 +190,74 @@
         $('#sg-make', box).textContent = 'Lav igen';
         showPdf(blob, name, coarse());
       };
+      // ---------- kobling til bilens side på h-auto.dk ----------
+      var webList = null, webErr = '', webPick = false, webMode = 'redirect';
+      function curWeb() { var c = BA.store.car(car.id) || car; var w = c.extra && c.extra.web; return w && w.id ? w : null; }
+      function webName(id) { var x = (webList || []).filter(function (v) { return v.id === id; })[0]; return x ? x.name + (x.price ? ' – ' + SG().fmtInt(x.price) + ' kr.' : '') : ''; }
+      function modeChips(sel) {
+        return '<div class="chips" role="group" aria-label="Hvad kunden ser" style="margin-top:8px">' + SG().WEB_MODES.map(function (m) {
+          return '<button type="button" class="chip big' + (m === sel ? ' sel' : '') + '" data-webmode="' + m + '" aria-pressed="' + (m === sel) + '">' + esc(SG().WEB_MODE_NAMES[m]) + '</button>'; }).join('') + '</div>';
+      }
+      function selectHtml(selId) {
+        var ms = SG().matchWeb(car, webList || []);
+        return '<div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap"><select id="sg-websel" aria-label="Bil på h-auto.dk" style="flex:1;min-width:0">' +
+          ms.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === selId ? ' selected' : '') + '>' + esc(x.name + (x.price ? ' – ' + SG().fmtInt(x.price) + ' kr.' : '')) + '</option>'; }).join('') +
+          '</select><button type="button" class="btn small primary" id="sg-weblink">Kobl</button></div>' +
+          '<button type="button" class="btn small ghost" id="sg-webretry" style="margin-top:4px">Står bilen der ikke? Hent listen igen</button>';
+      }
+      function drawWeb() {
+        var el = $('#sg-webbody', box); if (!el) return;
+        var w = curWeb(), h = '';
+        if (w) {
+          var nm = webName(w.id) || w.name || w.id, gone = webList && !webName(w.id);
+          webMode = w.mode;
+          h += '<div class="small">Koblet til <b>' + esc(nm) + '</b> · <a href="' + esc(SG().webUrl(w.id)) + '" target="_blank" rel="noopener">Åbn på h-auto.dk</a></div>' +
+            (gone ? '<div class="small neg" style="margin-top:4px">Bilen står ikke på h-auto.dk lige nu – kunden får vores egen side, til den er tilbage.</div>' : '') +
+            modeChips(w.mode) +
+            '<div class="btnrow" style="margin-top:6px"><button type="button" class="btn small" id="sg-webchange">Skift bil</button><button type="button" class="btn small" id="sg-webdel">Fjern kobling</button></div>' +
+            (webPick && webList ? selectHtml(w.id) : '');
+        } else if (webErr) {
+          h += '<div class="small neg">' + esc(webErr) + '</div><button type="button" class="btn small" id="sg-webretry" style="margin-top:6px">Prøv igen</button>' +
+            '<div class="muted small" style="margin-top:4px">Uden kobling ser kunden vores egen side (pris, udstyr og ring/SMS).</div>';
+        } else if (!webList) {
+          h += '<span class="muted small">Henter bilerne på h-auto.dk …</span>';
+        } else if (!webList.length) {
+          h += '<span class="muted small">Der står ingen biler på h-auto.dk lige nu. Kunden ser vores egen side.</span>';
+        } else {
+          var best = SG().matchWeb(car, webList)[0];
+          if (best && best.score >= 5 && !webPick) {
+            h += '<div class="small">Forslag: <b>' + esc(best.name + (best.price ? ' – ' + SG().fmtInt(best.price) + ' kr.' : '')) + '</b></div>' + modeChips(webMode) +
+              '<div class="btnrow" style="margin-top:6px"><button type="button" class="btn small primary" id="sg-webuse" data-id="' + esc(best.id) + '">Brug den</button><button type="button" class="btn small" id="sg-webchange">Vælg en anden</button></div>';
+          } else {
+            h += '<div class="muted small">Vælg bilen på h-auto.dk (uden kobling ser kunden vores egen side):</div>' + modeChips(webMode) + selectHtml(best ? best.id : '');
+          }
+        }
+        el.innerHTML = h;
+      }
+      function link(id) {
+        var x = (webList || []).filter(function (v) { return v.id === id; })[0];
+        BA.store.setWebLink(car.id, { id: id, mode: webMode, name: x ? x.name : '' });
+        webPick = false; drawWeb();
+        BA.toast(webMode === 'redirect' ? 'Koblet. QR-koden sender nu kunden direkte til bilens side på h-auto.dk.' : 'Koblet. Kundesiden viser nu en knap til bilens side på h-auto.dk.', { long: true });
+      }
+      function loadWeb(fresh) {
+        webErr = ''; drawWeb();
+        BA.api.call('listWebCars', fresh ? { fresh: true } : {}, { timeout: 30000 }).then(function (res) { webList = (res && res.cars) || []; if (box.isConnected) drawWeb(); },
+          function (err) { webErr = err && err.code === 'NET' ? 'Ingen forbindelse – kunne ikke hente bilerne fra h-auto.dk.' : ((err && err.message) || 'Kunne ikke hente bilerne fra h-auto.dk.'); if (box.isConnected) drawWeb(); });
+      }
+      box.addEventListener('click', function (e) {
+        var t = e.target.closest ? e.target.closest('#sg-web button') : null;
+        if (!t) return;
+        var mb = t.getAttribute('data-webmode');
+        if (mb) { webMode = mb; var w = curWeb(); if (w && w.mode !== mb) { BA.store.setWebLink(car.id, { id: w.id, mode: mb, name: w.name || webName(w.id) }); } drawWeb(); return; }
+        if (t.id === 'sg-webuse') link(t.getAttribute('data-id'));
+        else if (t.id === 'sg-weblink') { var s = $('#sg-websel', box); if (s && s.value) link(s.value); }
+        else if (t.id === 'sg-webchange') { webPick = true; if (!webList) loadWeb(true); drawWeb(); }
+        else if (t.id === 'sg-webdel') { BA.store.setWebLink(car.id, null); webPick = false; drawWeb(); BA.toast('Koblingen er fjernet. Kunden ser vores egen side.'); }
+        else if (t.id === 'sg-webretry') loadWeb(true);
+      });
+      loadWeb(false);
+
       $('#sg-share', box).onclick = function () { if (made) showPdf(made.blob, made.name, true); };
       $('#sg-open', box).onclick = function () { if (made) openTab(made.blob, made.name); };
       redraw();
