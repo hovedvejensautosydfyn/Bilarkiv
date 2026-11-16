@@ -43,6 +43,7 @@ var TODO_ = (function () {
   function onStock(car) { var i = idx(car.status); return i >= 2 && i <= 6; }
   function notSold(car) { var i = idx(car.status); return i < 7; }
   function carLabel(c) { var t = ((c.reg ? c.reg + ' ' : '') + (c.model || '')).trim(); return t || 'bilen'; }
+  function fmtKr(n) { var s = String(Math.round(+n || 0)), out = ''; while (s.length > 3) { out = '.' + s.slice(-3) + out; s = s.slice(0, -3); } return s + out + ' kr.'; }
 
   function dayNum(iso) {
     var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '');
@@ -270,6 +271,16 @@ var TODO_ = (function () {
       var done = si;
       add({ key: 'sale:' + c.id, kind: 'sale', prio: 1, carId: c.id, text: 'Solgt – ' + carLabel(c) + ': ' + step[1], sub: 'Skridt ' + (done + 1) + ' af ' + SALE_STEPS.length,
         at: (c.extra && c.extra.statusAt && c.extra.statusAt.Solgt) || NEVER, label: step[2], action: { kind: 'tick', tick: step[0], carId: c.id } });
+    });
+
+    // 5d. Prisskilt: prisen er ændret, efter at skiltet blev printet (skiltet i bilen viser den gamle pris)
+    cars.forEach(function (c) {
+      var sg = c.extra && c.extra.sign;
+      if (!notSold(c) || !sg || typeof sg !== 'object' || !(+sg.price > 0)) return;
+      var nowPrice = +c.listPrice || 0;
+      if (!(nowPrice > 0) || nowPrice === +sg.price) return;
+      add({ key: 'sign:' + c.id, kind: 'sign', prio: 1, carId: c.id, text: 'Print nyt prisskilt til ' + carLabel(c),
+        sub: 'Skiltet i bilen siger ' + fmtKr(sg.price) + ' – prisen er nu ' + fmtKr(nowPrice), at: typeof sg.at === 'number' ? sg.at : NEVER, label: '', action: null });
     });
 
     // 6. Bookinger: i dag, og forfaldne

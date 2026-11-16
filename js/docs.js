@@ -15,7 +15,7 @@
 var DOCS_ = (function () {
   'use strict';
 
-  var FIRM = { name: 'Hovedvejens Auto Sydfyn', cvr: '35913971', street: 'Hovedvejen 41', city: '5771 Stenstrup', phone: '60 99 25 85', email: 'info@h-auto.dk' };
+  var FIRM = { name: 'Hovedvejens Auto Sydfyn', cvr: '35913971', street: 'Hovedvejen 41', city: '5771 Stenstrup', phone: '60 99 25 85', email: 'info@h-auto.dk', hours: 'Hverdage 8–18, weekend efter aftale' };
   var KORE_PHONE = '60 99 25 85', PLATE = 'KR 23';
   var VAT_OPT = { brugt: 'Brugtmoms', alm: 'Alm. moms', fri: 'Momsfri' };
   var MAX_SIG = 120000;       // tegn i en underskrift (data-adresse) – små PNG'er er ca. 5-30 kB

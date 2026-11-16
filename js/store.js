@@ -17,7 +17,7 @@
   var LS = { key: 'ba.key', server: 'ba.server', person: 'ba.person', cacheOld: 'ba.cache.v1', queue: 'ba.queue.v1', failed: 'ba.failed.v1', qperson: 'ba.queue.person' };
   var TIMEOUT_MS = 45000, UPLOAD_TIMEOUT_MS = 180000;
   /** Laveste serverversion, appen kan arbejde sammen med (Code.gs: SERVER_VERSION). */
-  var NEEDS_SERVER = 4;
+  var NEEDS_SERVER = 5;
   var FULL_EVERY_MS = 10 * 60 * 1000, OVERLAP_MS = 60000, MAX_SERVER_FAILS = 8;
 
   // ---------------------------------------------------------------------------
@@ -199,6 +199,17 @@
         break;
       case 'cover':
         c = v.cm[fx.id]; if (c) c.cover = fx.cover;
+        break;
+      case 'sign':
+        c = v.cm[fx.id];
+        if (c) {
+          // Samme regel som serveren: et ældre skilt (fx "Send igen" på et fejlet) erstatter ikke et nyere – kun dets QR-kode lægges til
+          var ex = {}; Object.keys(c.extra || {}).forEach(function (k) { ex[k] = c.extra[k]; });
+          var old = ex.sign && typeof ex.sign === 'object' ? ex.sign : null, oldMade = old ? (+old.madeAt || +old.at || 0) : 0;
+          if (!old || (+fx.sign.madeAt || 0) >= oldMade) ex.sign = clone(fx.sign);
+          else { var keep = clone(old); keep.codes = (Array.isArray(keep.codes) ? keep.codes : []).slice(); (fx.sign.codes || []).forEach(function (k) { if (keep.codes.indexOf(k) < 0) keep.codes.push(k); }); ex.sign = keep; }
+          c.extra = ex;
+        }
         break;
     }
   }
@@ -410,6 +421,7 @@
         if (res.removed) base.items = base.items.filter(function (i) { return i.id !== res.removed; });
         if (res.car) upsertCar(res.car);
         break;
+      case 'makeSign': upsertItem(res.item); if (res.car) upsertCar(res.car); break;
     }
     if (op.fn === 'restoreCar' && res.car) {
       // Bilens poster kom ikke med: hent dem igen (serveren sender alle poster på en bil, der er ændret).
@@ -435,7 +447,7 @@
     ensureVersion().then(function (ok) {
       if (!ok) { pumping = false; S.online = true; BA.emit('status'); return; }   // serveren er for gammel: ændringerne bliver liggende, til den er opdateret
       var op = Q[0];
-      return A.call(op.fn, op.arg, op.fn === 'makeDocument' ? { timeout: UPLOAD_TIMEOUT_MS } : undefined).then(function (res) { sent(op, res); }, function (err) { failed(op, err); });
+      return A.call(op.fn, op.arg, op.fn === 'makeDocument' || op.fn === 'makeSign' ? { timeout: UPLOAD_TIMEOUT_MS } : undefined).then(function (res) { sent(op, res); }, function (err) { failed(op, err); });
     }, function (err) { failed(null, err); });
   }
 
@@ -524,6 +536,7 @@
         var dv = a.vals || {}, dlabel = (BA.docs && BA.docs.SPECS[a.kind] && BA.docs.SPECS[a.kind].label) || 'dokument';
         return { title: 'PDF: ' + dlabel + ' på ' + carLabel(a.carId), lines: [dv.custName || dv.buyerName ? 'Navn: ' + (dv.custName || dv.buyerName) : '', dv.price ? 'Pris: ' + dv.price + ' kr.' : '', dv.sigCust ? 'Med underskrift' : ''].filter(Boolean) };
       }
+      case 'makeSign': return { title: 'Prisskilt på ' + carLabel(a.carId), lines: ['Pris: ' + U.kr(a.price), 'VIGTIGT: QR-koden på det printede skilt virker først, når dette er gemt. Tryk Send igen.', 'Sletter du det, virker QR-koden på skiltet aldrig – så skal du printe et nyt skilt.'] };
     }
     return { title: op.fn, lines: [] };
   }
@@ -738,6 +751,31 @@
     if (replaceId) arg.replaceId = replaceId;
     enqueue('makeDocument', arg, { k: 'none' });
     return id;
+  };
+  /**
+   * Prisskilt: PDF'en er lavet i telefonen (BA.sign). Den gemmes under bilens Papirer, og valg + QR-kode huskes på bilen.
+   * Går gennem køen (virker uden net). Bilen viser det nye skilt med det samme (overlejring). Giver fil-postens id.
+   */
+  BA.store.makeSign = function (carId, code, opts, price, pdfBase64) {
+    var id = U.uid(), car = maps.car[carId];
+    var cur = car && car.extra && car.extra.sign ? car.extra.sign : {};
+    var codes = (Array.isArray(cur.codes) ? cur.codes : []).slice();
+    if (codes.indexOf(code) < 0) codes.push(code);
+    var t = now(), sign = { codes: codes, opts: clone(opts), price: price, at: t, madeAt: t, file: id, by: person() };
+    enqueue('makeSign', { id: id, carId: carId, code: code, opts: opts, price: price, madeAt: t, data: pdfBase64 }, { k: 'sign', id: carId, sign: sign });
+    return id;
+  };
+  /** Kender serveren koden (står den på bilen, som serveren sidst sendte – ikke kun i telefonens overlejring)? */
+  BA.store.signCodeSaved = function (carId, code) {
+    var c = base.cars.filter(function (x) { return x.id === carId; })[0], s = c && c.extra && c.extra.sign;
+    return !!(s && Array.isArray(s.codes) && s.codes.indexOf(code) >= 0);
+  };
+  /** Prisskilte, der venter på at blive gemt (eller ikke kunne gemmes): [{ id, code, state, saved }]. saved = koden virker allerede (et andet skilt gemte den). */
+  BA.store.pendingSigns = function (carId) {
+    var out = [];
+    Q.forEach(function (o) { if (o.fn === 'makeSign' && o.arg && o.arg.carId === carId) out.push({ id: o.arg.id, code: o.arg.code, state: 'wait', saved: BA.store.signCodeSaved(carId, o.arg.code) }); });
+    Fl.forEach(function (g) { g.ops.forEach(function (o) { if (o.fn === 'makeSign' && o.arg && o.arg.carId === carId) out.push({ id: o.arg.id, code: o.arg.code, state: 'failed', saved: BA.store.signCodeSaved(carId, o.arg.code) }); }); });
+    return out;
   };
   /** Dokumenter, der venter på at blive lavet på serveren: [{ id, kind }] (også dem, der ikke kunne gemmes). */
   BA.store.pendingDocs = function (carId) {

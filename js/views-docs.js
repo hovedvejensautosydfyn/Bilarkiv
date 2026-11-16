@@ -39,8 +39,10 @@
     h += '<button type="button" class="listbtn" data-act="chk-open" data-list="gennemgang"><span>Gennemgang ved ankomst</span><b>' + g.done + ' af ' + g.total + (g.fejl ? ' · ' + g.fejl + ' fejl' : '') + ' ›</b></button>';
     h += '<button type="button" class="listbtn" data-act="chk-open" data-list="klargoering"><span>Klargøring</span><b>' + k.done + ' af ' + k.total + ' ›</b></button>';
     h += '<div class="btnrow" style="margin-top:10px"><button type="button" class="btn small" data-act="ad-open">✍️ Lav annoncetekst</button>' +
+      '<button type="button" class="btn small" data-act="sign-open">🏷️ Prisskilt</button>' +
       '<a class="btn small" href="' + KORE_APP + '" target="_blank" rel="noopener" data-act="kore-app">Åbn Køreseddel-appen</a></div>' +
       '<div class="muted small" style="margin-top:6px">Køreseddel-appen kan ikke udfylde sig selv endnu. Knappen kopierer bilens oplysninger, så du kan indsætte dem der. “Køreseddel” ovenfor er papirblanketten.</div>';
+    if (BA.signCarSection) h += BA.signCarSection(car);
     if (sold && (car.status === 'Solgt' || car.status === 'Udleveret' || car.status === 'Reklamation')) h += saleHtml(car);
     return h;
   };
@@ -61,6 +63,7 @@
       case 'doc-new': openDoc(car, el.getAttribute('data-kind')); return true;
       case 'chk-open': openChecklist(car, el.getAttribute('data-list')); return true;
       case 'ad-open': openAd(car); return true;
+      case 'sign-open': if (BA.signOpen) BA.signOpen(car); return true;
       case 'kore-app': {
         var txt = [car.model, car.reg, car.vin].filter(Boolean).join(' · ');
         U.copy(txt).then(function (ok) { BA.toast(ok ? 'Bilens oplysninger er kopieret: ' + txt : 'Kunne ikke kopiere.', { long: true }); });

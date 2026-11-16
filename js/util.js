@@ -156,7 +156,7 @@
     if (status === 'Annonceret') return 'acc';
     return '';
   };
-  BA.DOC_KINDS = ['Slutseddel', 'Byttebil-slutseddel', 'Køreseddel', 'Fuldmagt', 'Købsfaktura', 'Registreringsattest', 'Synsrapport', 'Servicebog', 'Værkstedsfaktura', 'Andet'];
+  BA.DOC_KINDS = ['Slutseddel', 'Byttebil-slutseddel', 'Køreseddel', 'Fuldmagt', 'Købsfaktura', 'Registreringsattest', 'Synsrapport', 'Servicebog', 'Værkstedsfaktura', 'Prisskilt', 'Andet'];
   BA.MAX_PROFIT_HINT = 20000;
 
   // ---------- beregninger (som calc() i det gamle Bilarkiv) ----------

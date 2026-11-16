@@ -1,7 +1,7 @@
 // Gemmer appens egne filer, så appen kan åbnes uden internet. Altid nettet først (så opdateringer kommer med det samme), ellers den gemte udgave.
 // Kald til serveren (script.google.com) gemmes aldrig.
-var CACHE = 'bilarkiv-app-v17';
-var FILES = ['./', 'index.html', 'app.css', 'config.js', 'manifest.webmanifest', 'js/util.js', 'js/docs.js', 'js/todo.js', 'js/ui.js', 'js/store.js', 'js/images.js', 'js/views-list.js', 'js/views-car.js', 'js/views-todo.js', 'js/ad.js', 'js/econ.js', 'js/views-docs.js', 'js/views-bytte.js', 'js/views-econ.js', 'js/main.js', 'icons/logo-hvid.png', 'icons/ikon3-180.png', 'icons/ikon3-192.png'];
+var CACHE = 'bilarkiv-app-v18';
+var FILES = ['./', 'index.html', 'app.css', 'config.js', 'manifest.webmanifest', 'js/util.js', 'js/docs.js', 'js/sign.js', 'js/views-sign.js', 'js/todo.js', 'js/ui.js', 'js/store.js', 'js/images.js', 'js/views-list.js', 'js/views-car.js', 'js/views-todo.js', 'js/ad.js', 'js/econ.js', 'js/views-docs.js', 'js/views-bytte.js', 'js/views-econ.js', 'js/main.js', 'icons/logo-hvid.png', 'icons/ikon3-180.png', 'icons/ikon3-192.png'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(FILES); }).then(function () { return self.skipWaiting(); }));
@@ -21,6 +21,8 @@ self.addEventListener('fetch', function (e) {
   if (url.origin !== self.location.origin) return;
   // Manifestet og ikonerne hentes af browseren selv (ved installation); dem blander vi os ikke i.
   if (/manifest\.webmanifest$/.test(url.pathname) || url.pathname.indexOf('/icons/') >= 0) return;
+  // Kundesiden (b/) er ikke en del af appen: den må aldrig få appens sider i stedet
+  if (/\/b\/(index\.html)?$/.test(url.pathname)) return;
   e.respondWith(fetch(req).then(function (res) {
     if (res && res.ok) {
       var copy = res.clone();

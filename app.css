@@ -271,3 +271,18 @@ table.lines tr.cur td { background: var(--surface-2); }
 #s-fase3 .btn.small, #s-fase3 .li .btn { min-height: 44px; }
 .docdlg > *, .docform, .docprev { min-width: 0; }
 .docframe-wrap { max-width: 100%; }
+
+/* ---------- Prisskilt ---------- */
+.signprev { width: 100%; aspect-ratio: 297 / 210; background: #fff; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; }
+.signprev svg { display: block; width: 100%; height: 100%; }
+.signprice { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--surface-2); margin-bottom: 10px; }
+.signprice b { font-family: var(--f-disp); font-size: 30px; line-height: 1.1; }
+.signdlg .chip.big { min-height: 44px; border: 1px solid var(--line-strong); cursor: pointer; font-family: inherit; }
+.signdlg .chip.big.sel { border-color: var(--accent-fill); }
+.signdlg .chip .fits { font-size: 11px; font-weight: 600; color: var(--ok); margin-left: 4px; }
+.signeq { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 0 12px; }
+.signeq .check span { overflow-wrap: anywhere; }
+.signeq .check input:disabled + span { color: var(--muted); }
+.signdone { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; padding: 12px 14px; border-radius: var(--radius-sm); background: var(--ok-soft); }
+.signdone[hidden] { display: none; }
+@media (max-width: 899px) { .signdlg .docprev { order: -1; } }

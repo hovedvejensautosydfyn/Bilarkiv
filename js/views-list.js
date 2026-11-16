@@ -376,6 +376,9 @@
     list.forEach(function (g) {
       var conflict = g.kind === 'conflict';
       var lines = (g.lines || []).slice();
+      // Et prisskilt, hvis QR-kode allerede er gemt (af et nyere skilt): ufarligt at slette
+      var so = g.ops[0] && g.ops[0].fn === 'makeSign' && g.ops[0].arg;
+      if (so && BA.store.signCodeSaved(so.carId, so.code)) lines = lines.filter(function (l) { return !/QR-koden/.test(l); }).concat(['QR-koden på skiltet virker allerede (et nyere skilt er gemt). Du kan slette dette.']);
       if (conflict) Object.keys(g.vals || {}).forEach(function (k) { lines.push('Nu hos serveren – ' + BA.store.fieldLabel(k) + ': ' + BA.store.shortVal(g.vals[k])); });
       var create = g.ops[0] && g.ops[0].fn === 'createCar';
       h += '<div class="li" data-fg="' + esc(g.id) + '"><div class="main"><div class="t">' + esc(g.title) + '</div><div class="m">' + esc(g.msg) + ' · ' + esc(U.fmtTime(g.at)) + (g.who ? ' · ' + esc(g.who) : '') + '</div>' +
@@ -489,7 +492,9 @@
       else if (act === 'drop') {
         var waiting = 0; (g.carIds || []).forEach(function (id) { waiting += BA.up.forCar(id).length; });
         (g.owned || []).forEach(function (id) { if ((g.carIds || []).indexOf(id) < 0) waiting += BA.up.list().filter(function (u) { return u.parent === id; }).length; });
-        BA.confirm(g.kind === 'conflict' ? 'Behold den nye værdi' : 'Slet ændringen', g.kind === 'conflict' ? 'Din værdi kasseres, og den andens værdi bliver stående. Er du sikker?' : 'Det, du skrev, kan ikke fås tilbage.' + (waiting ? ' De ' + waiting + ' billeder/filer, der venter på bilen, slettes også.' : '') + ' Er du helt sikker?', g.kind === 'conflict' ? 'Behold den nye' : 'Slet', true).then(function (yes) {
+        var signDrop = (g.ops || []).some(function (o) { return o.fn === 'makeSign' && o.arg && !BA.store.signCodeSaved(o.arg.carId, o.arg.code); });
+        BA.confirm(g.kind === 'conflict' ? 'Behold den nye værdi' : 'Slet ændringen', g.kind === 'conflict' ? 'Din værdi kasseres, og den andens værdi bliver stående. Er du sikker?' : 'Det, du skrev, kan ikke fås tilbage.' + (waiting ? ' De ' + waiting + ' billeder/filer, der venter på bilen, slettes også.' : '') +
+          (signDrop ? ' QR-koden på det printede prisskilt kommer aldrig til at virke – du skal printe et nyt skilt.' : '') + ' Er du helt sikker?', g.kind === 'conflict' ? 'Behold den nye' : 'Slet', true).then(function (yes) {
           if (!yes) return;
           var dropped = BA.store.dropFailed(gid);
           if (dropped) {
