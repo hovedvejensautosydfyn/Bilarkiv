@@ -280,7 +280,7 @@
     var docs = itemsOf(car, 'fil').filter(function (f) { return f.kind !== 'photo' && f.kind !== 'video' && !f.parent; }).sort(byCreated);
     var uploads = BA.up.forCar(car.id).filter(function (u) { return !u.parent && u.kind !== 'photo' && u.kind !== 'video'; });
     return secHead('Papirer', docs.length, '<button class="btn small" type="button" data-act="doc-add">+ Papir</button>') + (docs.length ? docs.map(function (d) {
-      return '<div class="li"><div class="main"><div class="t"><button type="button" class="btn ghost small" style="text-transform:none;letter-spacing:0;padding:0;min-height:30px;color:var(--accent)" data-act="doc-open" data-id="' + esc(d.id) + '">' + esc(d.name) + '</button></div>' +
+      return '<div class="li"><div class="main"><div class="t"><button type="button" class="btn ghost small" style="text-transform:none;letter-spacing:0;padding:0;min-height:30px;color:var(--accent);white-space:normal;text-align:left;overflow-wrap:anywhere;max-width:100%" data-act="doc-open" data-id="' + esc(d.id) + '">' + esc(d.name) + '</button></div>' +
         '<div class="m">' + (d.size ? Math.round(d.size / 1000) + ' kB · ' : '') + esc(U.fmtDate(d.added)) + '</div></div>' +
         '<select data-act="doc-kind" data-id="' + esc(d.id) + '" aria-label="Type" style="width:auto;min-height:36px;padding:4px 8px;font-size:14px">' + BA.options(BA.DOC_KINDS, d.kind) + '</select>' +
         '<button class="icon-btn del" type="button" data-act="doc-del" data-id="' + esc(d.id) + '" aria-label="Slet">✕</button></div>';
