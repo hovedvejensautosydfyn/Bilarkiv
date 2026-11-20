@@ -145,7 +145,7 @@
     A.call('lookupPlate', { reg: reg }, { timeout: 40000 }).then(function (res) {
       btn.disabled = false; btn.textContent = 'Slå op';
       st.reg = res.reg || reg;
-      if (res.existing) { show('Bilen findes allerede i Bilarkivet (' + res.existing.model + ', ' + res.existing.status + '). Tjek, at det ikke er en dublet.'); }
+      if (res.existing) { show('Bilen findes allerede i Bilarkivet (' + res.existing.model + ', ' + BA.statusLabel(res.existing.status) + '). Tjek, at det ikke er en dublet.'); }
       var c = res.car;
       if (c) {
         st.model = c.model || st.model; st.variant = c.variant || st.variant; st.year = c.year || st.year; st.fuel = c.fuel || st.fuel; st.color = c.color || st.color; st.vin = c.vin || st.vin;

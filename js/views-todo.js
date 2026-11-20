@@ -8,7 +8,11 @@
   var T = BA.todo;
   var WD = ['søn', 'man', 'tirs', 'ons', 'tors', 'fre', 'lør'];
 
-  BA.todoCtx = function () { return { now: Date.now(), cars: BA.S.cars, items: BA.S.items, settings: BA.S.settings, local: U.local }; };
+  BA.todoCtx = function () {
+    return { now: Date.now(), cars: BA.S.cars, items: BA.S.items, settings: BA.S.settings, local: U.local,
+      // Er den forventede avance under grænsen? (låsen før salg beder om din accept, hvis ja)
+      belowMin: function (car) { var lvl = BA.profitLevel(BA.calc(car, BA.S.items, BA.S.settings), BA.S.settings); return lvl === 'warn' || lvl === 'bad'; } };
+  };
   BA.todoList = function () { return T.compute(BA.todoCtx()); };
   BA.todoCount = function () { return T.count(BA.todoList()); };
 
@@ -216,7 +220,7 @@
   function chargeHtml(ctx) {
     var ci = T.chargeInfo(ctx), cars = ctx.cars.filter(T.onStock);
     var h = '<div class="card"><div class="hd"><h2>Laderen</h2></div>';
-    if (!cars.length) return h + '<p class="muted small" style="margin:0">Ingen biler er ankommet endnu. Laderen er på rotation for alle biler fra “Ankommet” til “Annonceret”.</p></div>';
+    if (!cars.length) return h + '<p class="muted small" style="margin:0">Ingen biler er ankommet endnu. Laderen er på rotation for alle biler fra Gennemgang til Til salg.</p></div>';
     h += '<p class="small muted" style="margin-top:0">' + (ci.lastAny ? 'Sidst flyttet ' + esc(T.fmtAgo(ctx.now - ci.lastAny)) + '. ' : 'Laderen er ikke flyttet endnu. ') +
       (ci.due ? '<b>Den skal flyttes nu.</b>' : 'Næste flytning kl. ' + esc(ctx.local(ci.nextDue).slice(5, 16).replace(' ', ' kl. ')) + '.') + '</p>';
     var rows = cars.map(function (c) { return { c: c, at: T.lastTick(ctx.items, c.id, 'charge') }; }).sort(function (a, b) { return a.at - b.at; });

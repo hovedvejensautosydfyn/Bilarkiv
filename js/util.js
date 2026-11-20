@@ -149,11 +149,14 @@
   BA.STATUSES = ['Købt', 'Under transport', 'Ankommet', 'Gennemgået', 'Klargøring', 'Fotograferet', 'Annonceret', 'Solgt', 'Udleveret', 'Reklamation'];
   BA.SOLD_FROM = 7;
   BA.isSold = function (status) { return BA.STATUSES.indexOf(status) >= BA.SOLD_FROM; };
+  // Fase 5: forløbet er Købt → Gennemgang → Klargøring → Til salg → Solgt → Udleveret. Det gemte navn er uændret (Ankommet = Gennemgang, Annonceret = Til salg);
+  // gamle trin (Under transport, Gennemgået, Fotograferet) vises under det nærmeste nye trin. Reglerne ligger i todo.js (BA.todo, delt med serveren).
+  BA.stage = function (status) { return BA.todo.stageOf(status); };
+  BA.statusLabel = function (status) { return BA.todo.stageLabel(status); };
   BA.statusClass = function (status) {
     var i = BA.STATUSES.indexOf(status);
     if (i >= BA.SOLD_FROM) return status === 'Reklamation' ? 'bad' : 'ok';
-    if (status === 'Under transport') return 'warn';
-    if (status === 'Annonceret') return 'acc';
+    if (BA.stage(status) === 'Annonceret') return 'acc';
     return '';
   };
   BA.DOC_KINDS = ['Slutseddel', 'Byttebil-slutseddel', 'Køreseddel', 'Fuldmagt', 'Købsfaktura', 'Registreringsattest', 'Synsrapport', 'Servicebog', 'Værkstedsfaktura', 'Prisskilt', 'Andet'];

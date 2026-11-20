@@ -26,8 +26,9 @@
     reklamation: { title: 'Reklamation', fields: [['date', 'Dato', 'date'], ['desc', 'Problem', 'text', { req: 1, max: 300 }], ['ctype', 'Fejltype', 'text', { list: CATS.claim, max: 60 }], ['fix', 'Løsning / hvem lavede det', 'text', { max: 300 }],
       ['kind', 'Afregning', 'select', { options: [{ value: '', label: 'Reparation (beløb ex. moms)' }, { value: 'Afslag i pris', label: 'Afslag i pris (sænker også brugtmomsen)' }] }], ['amount', 'Beløb (kr)', 'money']] },
     opgave: { title: 'Opgave', fields: [['text', 'Hvad skal laves?', 'text', { req: 1, max: 200 }], ['who', 'Hvem laver den?', 'select', { options: [{ value: '', label: 'Ikke bestemt' }, { value: 'selv', label: 'Selv' }, { value: 'værksted', label: 'Værksted' }] }],
+      ['phase', 'Hvornår skal den laves?', 'select', { options: [{ value: '', label: 'Før annoncering' }, { value: 'levering', label: 'Før levering (efter annoncering)' }] }],
       ['expPrice', 'Forventet pris (kr)', 'money'], ['expHours', 'Forventede timer', 'hours'], ['done', 'Er opgaven lavet?', 'check'], ['actPrice', 'Faktisk pris (kr)', 'money'], ['actHours', 'Faktiske timer', 'hours']] },
-    fejl: { title: 'Fejl eller mangel', fields: [['text', 'Hvad er fejlen?', 'text', { req: 1, max: 300 }], ['note', 'Note (valgfri)', 'area', { max: 1000 }], ['fixed', 'Er den afhjulpet?', 'check']] }
+    fejl: { title: 'Fejl eller mangel', fields: [['text', 'Hvad er fejlen?', 'text', { req: 1, max: 300 }], ['note', 'Note (valgfri)', 'area', { max: 1000 }], ['fixed', 'Er den afhjulpet?', 'check'], ['accepted', 'Jeg accepterer den (bilen sælges med den)', 'check']] }
   };
 
   function fieldHtml(f, val, name) {
@@ -49,6 +50,8 @@
     var spec = FORMS[type];
     var cur = item || Object.assign({}, BA.itemDefaults(type), defaults || {});
     if (!item && (type === 'udgift' || type === 'time' || type === 'reklamation') && !cur.date) cur.date = U.today();
+    // En ny opgave på en bil, der er til salg eller solgt, skal være lavet før levering
+    if (!item && type === 'opgave' && !(defaults && 'phase' in defaults) && ['Annonceret', 'Solgt'].indexOf(BA.stage(car.status)) >= 0) cur.phase = 'levering';
     var fields = spec.fields.filter(function (f) { return type !== 'opgave' || item || (f[0] !== 'done' && f[0] !== 'actPrice' && f[0] !== 'actHours'); });
     var autoNote = item && item.auto === 'kanal' ? '<div class="banner warn">Denne udgift kom automatisk fra indkøbskanalen. Du kan rette eller slette den.</div>' : '';
     var html = autoNote + '<form novalidate>' + fields.map(function (f) { return fieldHtml(f, cur[f[0]], type); }).join('') +
@@ -84,6 +87,7 @@
         function err(k, m) { var e1 = $('[data-err=' + k + ']', box), inp = $('[data-k=' + k + ']', box); if (e1) e1.textContent = m; if (inp) inp.classList.add('invalid'); }
         if (bad) { var first = $('.invalid', box); if (first) first.focus(); return; }
         if (type === 'opgave' && out.done && !(item && item.done)) out.doneDate = U.today();
+        if (item && type === 'opgave' && item.fromDefect && out.done !== !!item.done && BA.store.item(item.fromDefect)) BA.store.updateItem(item.fromDefect, { fixed: !!out.done });   // opgaven kom af en fejl
         if (item) BA.store.updateItem(item.id, out); else BA.store.addItem(car.id, type, out);
         close();
       };
@@ -113,6 +117,7 @@
   }
 
   var SECTIONS = [
+    { id: 's-answers', col: 1, render: function (car) { return BA.answersSection ? BA.answersSection(car) : ''; }, hideEmpty: true },
     { id: 's-econ', col: 1, render: econ },
     { id: 's-sale', col: 1, render: saleSec, only: 'sold' },
     { id: 's-data', col: 1, render: dataSec },
@@ -220,7 +225,8 @@
         '<div class="main"><div class="t">' + esc(d.text) + '</div>' + (d.note ? '<div class="m">' + esc(d.note) + '</div>' : '') +
         (media.length ? '<div class="chips" style="margin-top:6px">' + media.map(function (m, i) { return '<button type="button" class="thumb mini" data-act="media" data-id="' + esc(m.id) + '" data-defect="' + esc(d.id) + '" aria-label="Åbn ' + esc(m.name) + '">' + (m.kind === 'video' ? '▶' : '<img data-iid="' + esc(m.id) + '" alt="" data-ph="Foto">') + '</button>'; }).join('') + '</div>' : '') +
         '<div class="row" style="margin-top:6px"><button type="button" class="btn small" data-act="def-media" data-id="' + esc(d.id) + '">📷 Foto/video</button>' +
-        (tasked ? '<span class="chip ok">Er en opgave</span>' : '<button type="button" class="btn small" data-act="def-task" data-id="' + esc(d.id) + '">Gør til opgave</button>') + '</div></div>' +
+        (tasked ? '<span class="chip ok">Er en opgave</span>' : '<button type="button" class="btn small" data-act="def-task" data-id="' + esc(d.id) + '">Gør til opgave</button>') +
+        (d.fixed ? '' : '<label class="check accept"><input type="checkbox" data-act="accept" data-id="' + esc(d.id) + '"' + (d.accepted ? ' checked' : '') + '> Jeg accepterer den</label>') + '</div></div>' +
         '<button class="icon-btn" type="button" data-act="def-edit" data-id="' + esc(d.id) + '" aria-label="Ret">✎</button><button class="icon-btn del" type="button" data-act="def-del" data-id="' + esc(d.id) + '" aria-label="Slet">✕</button></div>';
     }).join('') : '<p class="muted small" style="margin:0">Ingen fejl eller mangler noteret.</p>') + uploadRows(uploads);
   }
@@ -234,6 +240,7 @@
     var open = list.filter(function (t) { return !t.done; });
     var meta = function (t) {
       var parts = [];
+      if (t.phase === 'levering') parts.push('Før levering');
       if (t.who) parts.push(t.who === 'selv' ? 'Selv' : 'Værksted');
       if (t.done) { parts.push('faktisk ' + U.kr(t.actPrice) + ' · ' + U.hours(t.actHours)); }
       else { if (t.expPrice != null) parts.push('forventet ' + U.kr(t.expPrice)); if (t.expHours != null) parts.push(U.hours(t.expHours)); }
@@ -339,21 +346,18 @@
   function headHtml(car) {
     var sub = [car.variant, car.year, car.km != null ? U.fmtN(car.km) + ' km' : null, car.fuel, car.color].filter(Boolean).join(' · ');
     return '<div class="carhead"><div>' + U.plate(car.reg, true) + '<h1>' + esc(car.model || 'Uden navn') + '</h1><div class="muted">' + esc(sub) + '</div></div>' +
-      '<div class="row"><span class="chip big ' + BA.statusClass(car.status) + '">' + esc(car.status) + '</span><button class="btn" type="button" data-act="adcopy">Kopiér til AutoDesktop</button></div></div>';
+      '<div class="row"><span class="chip big ' + BA.statusClass(car.status) + '">' + esc(BA.statusLabel(car.status)) + '</span><button class="btn" type="button" data-act="adcopy">Kopiér til AutoDesktop</button></div></div>';
   }
-  function stepsHtml(car) {
-    var sold = BA.isSold(car.status), cur = BA.STATUSES.indexOf(car.status);
-    var list = sold ? BA.STATUSES.slice(BA.SOLD_FROM) : BA.STATUSES.slice(0, BA.SOLD_FROM + 1);
-    var h = '<div class="steps" role="group" aria-label="Bilens forløb">' + list.map(function (s) {
-      var i = BA.STATUSES.indexOf(s);
-      return '<button type="button" class="step ' + (i < cur ? 'done' : i === cur ? 'now' : '') + '" data-act="step" data-status="' + esc(s) + '"' + (i === cur ? ' aria-current="step"' : '') + '>' + esc(s) + '</button>';
-    }).join('') + '</div>';
-    var next = null;
-    if (!sold && cur < BA.SOLD_FROM - 1) next = { label: 'Næste trin: ' + BA.STATUSES[cur + 1], status: BA.STATUSES[cur + 1] };
-    else if (!sold) next = { label: 'Markér som solgt', status: 'Solgt' };
-    else if (cur === BA.SOLD_FROM) next = { label: 'Næste trin: Udleveret', status: 'Udleveret' };
-    if (next) h += '<button type="button" class="btn primary big" data-act="step" data-status="' + esc(next.status) + '" style="margin-bottom:14px">' + esc(next.label) + '</button>';
-    return h;
+  /** Forløbet og låsen (views-flow.js): trinene vises kun, de kan ikke trykkes på. Man kommer videre med knappen, når alt er klaret. */
+  function stepsHtml(car) { return BA.flowHtml ? BA.flowHtml(car) : ''; }
+  /** Hurtig-feltet under forløbet: ting, der skal laves før annoncering (før salg) eller før levering (efter). */
+  function flowAddState(car) {
+    var form = page && page.root ? page.root.querySelector('#c-flowadd') : null;
+    if (!form) return;
+    var stage = BA.stage(car.status), late = stage === 'Annonceret' || stage === 'Solgt';
+    form.hidden = stage === 'Udleveret' || stage === 'Reklamation';
+    form.elements.t.placeholder = late ? 'Skal noget laves før levering? Skriv her' : 'Skal noget ekstra laves før annoncering? Skriv her';
+    form.elements.t.setAttribute('aria-label', late ? 'Ny opgave før levering' : 'Ny opgave før annoncering');
   }
 
   // ---------------------------------------------------------------------------
@@ -366,7 +370,7 @@
       cols[s.col - 1].push('<section class="card' + (s.collapsible ? ' collapsible' + (openFlags[s.collapsible] ? ' open' : '') : '') + '" id="' + s.id + '"' + ((s.only === 'sold' && !sold) || (s.only === 'stock' && sold) ? ' hidden' : '') + '><div data-body></div>' + (FOOT[s.id] || '') + '</section>');
     });
     return '<a class="crumb" href="' + (sold ? '#/solgte' : '#/lager') + '">‹ ' + (sold ? 'Solgte biler' : 'Biler på lager') + '</a>' + BA.offlineBanner() +
-      '<div id="c-head"></div><div id="c-steps"></div><div class="cols"><div>' + cols[0].join('') + '</div><div>' + cols[1].join('') + '</div></div>';
+      '<div id="c-head"></div><div id="c-steps"></div><form class="addrow flowadd" id="c-flowadd" data-add="opgave" hidden><input name="t" maxlength="200" autocomplete="off"><button class="btn" type="submit">Tilføj</button></form><div class="cols"><div>' + cols[0].join('') + '</div><div>' + cols[1].join('') + '</div></div>';
   }
 
   V.bil = function (root, id) {
@@ -398,13 +402,18 @@
     page.dirty = false;
     setHtml($('#c-head', root), 'head', headHtml(car));
     setHtml($('#c-steps', root), 'steps', stepsHtml(car));
+    flowAddState(car);
     SECTIONS.forEach(function (s) {
       var el = $('#' + s.id, root);
       if (!el) return;
       if (s.collapsible) el.classList.toggle('open', !!openFlags[s.collapsible]);
-      setHtml(el.querySelector('[data-body]'), s.id, s.render(car), car);
+      var html = s.render(car);
+      if (s.hideEmpty) el.hidden = !html;
+      setHtml(el.querySelector('[data-body]'), s.id, html, car);
     });
   }
+  /** Til views-flow.js (knapperne i forløbet). */
+  BA.carHelpers = { openSale: function (car) { openSale(car); }, pickFiles: pickFiles, setStatus: setStatus, openAd: function (car) { openAd(car); } };
   V.bilUpdate = function (root) { if (page && page.root === root) V.bil(root, page.id); };
   V.bilReset = function () { page = null; };
 
@@ -465,16 +474,11 @@
     if (!car || !ch) return;
     var have = itemsOf(car, 'udgift').filter(function (x) { return x.auto === 'kanal'; }).map(function (x) { return String(x.desc).toLowerCase(); });
     var missing = ch.costs.filter(function (c) { return have.indexOf(String(c.desc).toLowerCase()) < 0; });
-    var transit = ch.transit && car.status === 'Købt';
-    if (!missing.length && !transit) return;
-    var parts = [];
-    if (missing.length) parts.push('lægge ' + missing.map(function (c) { return c.desc + ' ' + U.kr(c.amount); }).join(', ') + ' i bilens udgifter');
-    if (transit) parts.push('sætte bilen til “Under transport”');
-    BA.confirm('Indkøbskanalen ' + ch.name, 'Skal jeg ' + parts.join(' og ') + '?', 'Ja, gør det', false).then(function (yes) {
+    if (!missing.length) return;
+    BA.confirm('Indkøbskanalen ' + ch.name, 'Skal jeg lægge ' + missing.map(function (c) { return c.desc + ' ' + U.kr(c.amount); }).join(', ') + ' i bilens udgifter?', 'Ja, gør det', false).then(function (yes) {
       if (!yes) return;
       var c2 = BA.store.car(carId); if (!c2) return;
       missing.forEach(function (c) { BA.store.addItem(carId, 'udgift', { date: c2.boughtDate || U.today(), desc: c.desc, cat: c.cat, amount: c.amount, auto: 'kanal' }); });
-      if (transit && c2.status === 'Købt') BA.store.updateCar(carId, { status: 'Under transport' });
     });
   }
   BA.offerChannelCosts = offerChannelCosts;
@@ -624,9 +628,10 @@
     var item = id ? BA.store.item(id) : null;
     if (BA.todoCarAct && BA.todoCarAct(act, car, el)) return;
     if (BA.docsCarAct && BA.docsCarAct(act, car, el)) return;
+    if (BA.flowAct && BA.flowAct(act, car, el)) return;
     switch (act) {
-      case 'step': setStatus(car, el.getAttribute('data-status')); break;
       case 'sell': openSale(car); break;
+      case 'accept': if (item) BA.store.updateItem(item.id, { accepted: el.checked }); break;
       case 'reopen': setStatus(car, 'Annonceret'); break;
       case 'adcopy': openAd(car); break;
       case 'eq-del': if (item) confirmDelete(item, 'udstyr'); break;
@@ -649,10 +654,11 @@
               var p = $('#td-p', box).value.trim(), h = $('#td-h', box).value.trim(), pn = p === '' ? null : U.pnum(p), hn = h === '' ? null : U.pnum(h);
               if ((p !== '' && pn === null) || (h !== '' && (hn === null || hn < 0))) { $('#td-e', box).textContent = 'Skriv tal – eller lad feltet stå tomt.'; return; }
               BA.store.updateItem(item.id, { done: true, doneDate: U.today(), actPrice: pn, actHours: hn });
+              if (item.fromDefect && BA.store.item(item.fromDefect)) BA.store.updateItem(item.fromDefect, { fixed: true });   // opgaven kom af en fejl: fejlen er så afhjulpet
               close();
             };
           });
-        } else BA.store.updateItem(item.id, { done: false });
+        } else { BA.store.updateItem(item.id, { done: false }); if (item.fromDefect && BA.store.item(item.fromDefect)) BA.store.updateItem(item.fromDefect, { fixed: false }); }
         break;
       case 'task-edit': if (item) openItemForm('opgave', car, item); break;
       case 'task-new': openItemForm('opgave', car, null); break;
@@ -736,7 +742,11 @@
         if (itemsOf(car, 'udstyr').some(function (x) { return x.name.toLowerCase() === t.toLowerCase(); })) { BA.toast('Det udstyr er der allerede.'); form.elements.t.value = ''; return; }
         BA.store.addItem(car.id, 'udstyr', { name: t, source: 'egen' });
       } else if (type === 'fejl') BA.store.addItem(car.id, 'fejl', { text: t });
-      else if (type === 'opgave') BA.store.addItem(car.id, 'opgave', { text: t });
+      else if (type === 'opgave') {
+        // Efter annoncering skal en ny opgave være lavet FØR LEVERING (ellers før annoncering) – det styrer, hvilken lås den hører til.
+        var stg = BA.stage(car.status);
+        BA.store.addItem(car.id, 'opgave', { text: t, phase: stg === 'Annonceret' || stg === 'Solgt' ? 'levering' : '' });
+      }
       form.elements.t.value = '';
       form.elements.t.focus();
     });

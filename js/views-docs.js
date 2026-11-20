@@ -208,7 +208,7 @@
     var def = D().LISTS[list];
     if (!def) return;
     var simple = list === 'klargoering';
-    var html = '<p class="muted small" style="margin:0 0 10px">' + esc(def.hint) + '</p><div class="chkprog" id="chk-prog"></div>' +
+    var html = '<p class="muted small" style="margin:0 0 10px">' + esc(def.hint) + '</p><div class="chkprog" id="chk-prog"></div><div class="row" style="margin-bottom:8px"><button type="button" class="btn small" data-allok>Sæt alle ubesvarede til OK</button></div>' +
       def.groups.map(function (g) {
         return '<div class="chkgrp"><h3>' + esc(g.g) + '</h3>' + g.items.map(function (it) {
           return '<div class="chkrow" data-k="' + it.k + '"><div class="chkt">' + esc(it.t) + (it.opt ? ' <span class="muted small">(valgfri)</span>' : '') + '</div>' +
@@ -231,8 +231,8 @@
             find.hidden = st !== 'fejl';
             var inp = $('.chknote', row); if (inp && document.activeElement !== inp && it && inp.value !== (it.note || '')) inp.value = it.note || '';
             var label = labelOf(k), curNote = inp ? inp.value.trim() : ((it && it.note) || ''), txt = label + (curNote ? ': ' + curNote : '');
-            var has = itemsOf(car, 'fejl').some(function (f) { return f.text === label || f.text === txt.slice(0, 300); });
-            var hasTask = itemsOf(car, 'opgave').some(function (o) { return o.text === txt.slice(0, 200); });
+            var has = itemsOf(car, 'fejl').some(function (f) { return String(f.text).indexOf(label) === 0; });   // samme regel som låsen: teksten begynder med punktets tekst
+            var hasTask = itemsOf(car, 'opgave').some(function (o) { return String(o.text).indexOf(label) === 0; });
             $('.chkmsg', row).textContent = (has ? 'Ligger under Fejl og mangler ✓' : '') + (has && hasTask ? ' · ' : '') + (hasTask ? 'Opgave oprettet ✓' : '');
             // et fund kan kun gøres til fejl/opgave én gang (ellers får bilen dubletter)
             $('[data-mk="fejl"]', row).disabled = has; $('[data-mk="opgave"]', row).disabled = hasTask;
@@ -267,6 +267,16 @@
         BA.store.setTjek(car.id, list, k, 'fejl', inp.value.trim());
       });
       $('[data-close]', box).onclick = function () { close(); };
+      // Hurtigt: alt, der ikke er besvaret endnu (undtagen valgfrie punkter), sættes til OK. Allerede besvarede punkter (fejl m.m.) røres ikke.
+      $('[data-allok]', box).onclick = function () {
+        var p = D().progress(list, BA.S.items, car.id);
+        var todo = D().listItems(list).filter(function (i) { return !i.opt && !(p.byKey[i.k] && D().STATES.indexOf(p.byKey[i.k].state) >= 0); });
+        if (!todo.length) { BA.toast('Alle punkter er allerede besvaret.'); return; }
+        BA.confirm('Sæt til OK', 'Sæt de ' + todo.length + ' ubesvarede punkter til OK? Det, du allerede har svaret (fx fejl), bliver stående.', 'Ja, sæt til OK', false).then(function (yes) {
+          if (!yes) return;
+          todo.forEach(function (i) { BA.store.setTjek(car.id, list, i.k, 'ok'); });
+        });
+      };
       var off = function () { if (!box.isConnected) { BA.off && BA.off('data', onData); return; } onData(); };
       function onData() { if (box.isConnected) sync(); }
       BA.on('data', off);

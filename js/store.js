@@ -17,7 +17,7 @@
   var LS = { key: 'ba.key', server: 'ba.server', person: 'ba.person', cacheOld: 'ba.cache.v1', queue: 'ba.queue.v1', failed: 'ba.failed.v1', qperson: 'ba.queue.person' };
   var TIMEOUT_MS = 45000, UPLOAD_TIMEOUT_MS = 180000;
   /** Laveste serverversion, appen kan arbejde sammen med (Code.gs: SERVER_VERSION). */
-  var NEEDS_SERVER = 6;
+  var NEEDS_SERVER = 7;
   var FULL_EVERY_MS = 10 * 60 * 1000, OVERLAP_MS = 60000, MAX_SERVER_FAILS = 8;
 
   // ---------------------------------------------------------------------------
@@ -158,8 +158,8 @@
     soldDate: '', soldPrice: null, soldVia: '', buyer: '', buyerPhone: '', notes: '', cover: '', motKm: null, motDate: '', nextInspection: '', folderId: '', extra: {}, createdAt: 0, createdBy: '', updatedAt: 0, updatedBy: '', rev: 1, deleted: false };
 
   var ITEM_DEFAULTS = {
-    udstyr: { name: '', source: 'egen' }, fejl: { text: '', note: '', fixed: false },
-    opgave: { text: '', who: '', expPrice: null, expHours: null, done: false, doneDate: '', actPrice: null, actHours: null, fromDefect: '' },
+    udstyr: { name: '', source: 'egen' }, fejl: { text: '', note: '', fixed: false, accepted: false },
+    opgave: { text: '', who: '', expPrice: null, expHours: null, done: false, doneDate: '', actPrice: null, actHours: null, fromDefect: '', phase: '' },
     udgift: { date: '', desc: '', cat: '', amount: null, auto: '', defectId: '' }, time: { date: '', desc: '', cat: '', hours: null },
     reklamation: { date: '', desc: '', ctype: '', fix: '', kind: '', amount: null },
     abonnement: { name: '', cat: '', amount: null, freq: 'Månedlig', start: '', end: '' }, enkeltudgift: { date: '', desc: '', cat: '', amount: null },
@@ -487,7 +487,7 @@
     channel: 'Indkøbskanal', boughtDate: 'Købsdato', buyPrice: 'Købspris', listPrice: 'Annonceret pris', status: 'Status', soldDate: 'Salgsdato', soldPrice: 'Salgspris', soldVia: 'Salgskanal',
     buyer: 'Køber', buyerPhone: 'Købers telefon', notes: 'Noter', cover: 'Forsidebillede', listedDate: 'Sat til salg', name: 'Navn', text: 'Tekst', note: 'Note', desc: 'Beskrivelse',
     amount: 'Beløb', hours: 'Timer', date: 'Dato', cat: 'Kategori', expPrice: 'Forventet pris', expHours: 'Forventede timer', actPrice: 'Faktisk pris', actHours: 'Faktiske timer', done: 'Lavet',
-    fixed: 'Afhjulpet', who: 'Hvem', kind: 'Type', fix: 'Løsning', ctype: 'Fejltype', hourGoal: 'Mål: kr. pr. time', monthGoal: 'Mål pr. måned', stockDays: 'Advar efter dage', minProfit: 'Advar under (kr)',
+    fixed: 'Afhjulpet', accepted: 'Accepteret', phase: 'Skal laves', who: 'Hvem', kind: 'Type', fix: 'Løsning', ctype: 'Fejltype', hourGoal: 'Mål: kr. pr. time', monthGoal: 'Mål pr. måned', stockDays: 'Advar efter dage', minProfit: 'Advar under (kr)',
     vat: 'Brugtmoms', sellerName: 'Sælgerens navn', channels: 'Indkøbskanaler', salesChannels: 'Salgskanaler', source: 'Kilde',
     start: 'Tidspunkt', at: 'Tidspunkt', doneAt: 'Udført', due: 'Frist', phone: 'Telefon', cancelled: 'Aflyst',
     priceCheckDays: 'Pris-tjek efter dage', chargeHours: 'Lader flyttes hver (timer)', morningHour: 'Morgenbesked kl.',
@@ -686,7 +686,7 @@
     var car = Object.assign(clone(CAR_BLANK), f, { id: input.id });
     var ch = findChannel(S.settings, f.channel);
     car.channel = ch ? ch.name : '';
-    car.status = ch && ch.transit ? 'Under transport' : 'Købt';
+    car.status = 'Købt';
     car.boughtDate = car.boughtDate || U.today();
     car.createdAt = now(); car.updatedAt = now(); car.createdBy = person(); car.updatedBy = person();
     var givenCostIds = Array.isArray(input.costIds) ? input.costIds : [];   // en bil, der sendes igen: samme id'er som før, så ændringer af gebyrerne stadig passer
@@ -712,7 +712,7 @@
     enqueue('markSold', Object.assign({ id: id }, d), { k: 'carset', id: id, fields: fields });
   };
   BA.store.reopenSale = function (id) {
-    enqueue('reopenSale', { id: id }, { k: 'carset', id: id, fields: { status: 'Annonceret', soldPrice: null, soldDate: '', soldVia: '', buyer: '', buyerPhone: '' } });
+    enqueue('reopenSale', { id: id }, { k: 'carset', id: id, fields: { status: BA.todo.statusBeforeSale(maps.car[id]), soldPrice: null, soldDate: '', soldVia: '', buyer: '', buyerPhone: '' } });
   };
   BA.store.deleteCar = function (id) {
     var car = maps.car[id]; if (!car) return;

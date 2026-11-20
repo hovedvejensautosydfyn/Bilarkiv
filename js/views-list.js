@@ -101,7 +101,7 @@
     }
     var claimsN = BA.store.itemsOf(c.id, 'reklamation').length;
     return '<a class="carcard" href="#/bil/' + esc(c.id) + '">' +
-      '<div class="ph">' + (cover ? '<img data-iid="' + esc(cover.id) + '" alt="" data-ph="Intet billede">' : 'Intet billede endnu') + '<span class="st chip ' + BA.statusClass(c.status) + '">' + esc(c.status) + '</span></div>' +
+      '<div class="ph">' + (cover ? '<img data-iid="' + esc(cover.id) + '" alt="" data-ph="Intet billede">' : 'Intet billede endnu') + '<span class="st chip ' + BA.statusClass(c.status) + '">' + esc(BA.statusLabel(c.status)) + '</span></div>' +
       '<div class="cb"><div class="row between">' + U.plate(c.reg) + days + (sold && claimsN ? '<span class="chip bad">' + claimsN + ' reklamation' + (claimsN > 1 ? 'er' : '') + '</span>' : '') + '</div>' +
       '<h3>' + esc(c.model || 'Uden navn') + '</h3><div class="sub">' + esc(sub || ' ') + '</div>' +
       '<dl class="kv">' + kv.map(function (x) { return '<div><dt>' + x[0] + '</dt><dd>' + x[1] + '</dd></div>'; }).join('') + '</dl></div></a>';
@@ -114,7 +114,7 @@
       age: function (a, b) { return String(a.boughtDate || '9999').localeCompare(String(b.boughtDate || '9999')); },
       new: function (a, b) { return String(b.boughtDate || '').localeCompare(String(a.boughtDate || '')); },
       profit: function (a, b) { var x = BA.calc(a, BA.S.items, st).base, y = BA.calc(b, BA.S.items, st).base; return (y == null ? -1e12 : y) - (x == null ? -1e12 : x); },
-      status: function (a, b) { return BA.STATUSES.indexOf(a.status) - BA.STATUSES.indexOf(b.status); }
+      status: function (a, b) { return BA.todo.STAGE_PATH.indexOf(BA.stage(a.status)) - BA.todo.STAGE_PATH.indexOf(BA.stage(b.status)); }
     }[key] || null;
     if (sold) return list.sort(function (a, b) { return String(b.soldDate || '').localeCompare(String(a.soldDate || '')); });
     return list.sort(f);
@@ -123,16 +123,16 @@
   V.lager = function (root) {
     var all = BA.S.cars.filter(function (c) { return !BA.isSold(c.status); });
     var counts = {};
-    all.forEach(function (c) { counts[c.status] = (counts[c.status] || 0) + 1; });
-    var list = all.filter(function (c) { return (!ui.status || c.status === ui.status) && matches(c); });
+    all.forEach(function (c) { var s = BA.stage(c.status); counts[s] = (counts[s] || 0) + 1; });
+    var list = all.filter(function (c) { return (!ui.status || BA.stage(c.status) === ui.status) && matches(c); });
     sortCars(list, false);
-    var stocks = BA.STATUSES.slice(0, BA.SOLD_FROM);
+    var stocks = BA.todo.STAGE_PATH.slice(0, 4);
     var h = '<h1 class="page">Biler på lager <span class="muted" style="font-size:.6em">' + all.length + '</span></h1>' + offlineBanner() + backupWarning(false) +
       '<div class="toolbar"><input type="search" id="q" placeholder="Søg model, reg.nr., stelnr. …" value="' + esc(ui.q) + '" aria-label="Søg"><select id="sortsel" aria-label="Sortér">' +
       BA.options([{ value: 'age', label: 'Længst på lager' }, { value: 'new', label: 'Nyeste først' }, { value: 'profit', label: 'Højest forventet avance' }, { value: 'status', label: 'Efter status' }], ui.sort) + '</select>' +
       '<a class="btn" href="#/bytte">Byttebil</a><a class="btn primary" href="#/ny">+ Ny bil</a></div>' +
       '<div class="chips" style="margin-bottom:14px"><button type="button" class="chip big ' + (ui.status ? '' : 'sel') + '" data-status="">Alle ' + all.length + '</button>' +
-      stocks.filter(function (s) { return counts[s]; }).map(function (s) { return '<button type="button" class="chip big ' + (ui.status === s ? 'sel' : '') + '" data-status="' + esc(s) + '">' + esc(s) + ' ' + counts[s] + '</button>'; }).join('') + '</div>';
+      stocks.filter(function (s) { return counts[s]; }).map(function (s) { return '<button type="button" class="chip big ' + (ui.status === s ? 'sel' : '') + '" data-status="' + esc(s) + '">' + esc(BA.todo.STAGE_LABELS[s]) + ' ' + counts[s] + '</button>'; }).join('') + '</div>';
     if (!BA.S.loaded) h += '<div class="cars"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>';
     else if (!list.length) h += '<div class="empty">' + (ui.q || ui.status ? 'Ingen biler matcher.' : 'Ingen biler på lager endnu. Tryk “+ Ny bil” for at oprette den første.') + '</div>';
     else h += '<div class="cars">' + list.map(carCard).join('') + '</div>';
@@ -260,7 +260,7 @@
       '<button class="btn primary" type="submit"' + (nw.loading ? ' disabled' : '') + '>' + (nw.loading ? '<span class="spin"></span> Slår op …' : 'Slå op') + '</button>' +
       (nw.show ? '' : '<button class="btn" type="button" id="n-manual">Opret uden opslag</button>') + '</form>' +
       (nw.err ? '<div class="banner bad" role="alert" style="margin-top:12px">' + esc(nw.err) + '</div>' : '') +
-      (nw.existing ? '<div class="banner warn" style="margin-top:12px">Bilen findes allerede på lager: <b>' + esc(nw.existing.model) + '</b> (' + esc(nw.existing.status) + '). <a class="btn small" href="#/bil/' + esc(nw.existing.id) + '">Åbn bilen</a></div>' : '') +
+      (nw.existing ? '<div class="banner warn" style="margin-top:12px">Bilen findes allerede på lager: <b>' + esc(nw.existing.model) + '</b> (' + esc(BA.statusLabel(nw.existing.status)) + '). <a class="btn small" href="#/bil/' + esc(nw.existing.id) + '">Åbn bilen</a></div>' : '') +
       (nw.note ? '<div class="banner warn" style="margin-top:12px">' + esc(nw.note) + '</div>' : '') + '</div>';
     if (nw.show) {
       var f = nw.f;
@@ -272,7 +272,7 @@
         (nw.f.motKm != null ? '<p class="muted small" style="margin:0">Seneste syn' + (nw.f.motDate ? ' (' + esc(U.fmtDate(nw.f.motDate)) + ')' : '') + ': ' + esc(U.fmtN(nw.f.motKm)) + ' km. Det er ikke bilens km-stand nu.</p>' : '') + '</div>' +
         '<div class="card"><div class="hd"><h2>3 · Køb</h2></div>' +
         '<div class="field"><label for="n-channel">Indkøbskanal *</label><select id="n-channel" data-nf="channel">' + BA.options(st.channels.map(function (c) { return c.name; }), f.channel, 'Vælg …') + '</select>' +
-        (chosen ? '<div class="muted small" style="margin-top:6px">' + (chosen.transit ? 'Bilen sættes til “Under transport”. ' : '') + (chosen.costs.length ? 'Faste omkostninger lægges i udgifter: ' + chosen.costs.map(function (c) { return esc(c.desc) + ' ' + U.kr(c.amount); }).join(', ') + '.' : 'Ingen faste omkostninger.') + '</div>' : '') + '</div>' +
+        (chosen ? '<div class="muted small" style="margin-top:6px">' + (chosen.costs.length ? 'Faste omkostninger lægges i udgifter: ' + chosen.costs.map(function (c) { return esc(c.desc) + ' ' + U.kr(c.amount); }).join(', ') + '.' : 'Ingen faste omkostninger.') + '</div>' : '') + '</div>' +
         '<div class="grid2">' + inp('buyPrice', 'Købspris (kr)', 'inputmode="decimal"') + inp('boughtDate', 'Købsdato', 'type="date"') + '</div>' +
         '<div class="grid2">' + inp('km', 'Km nu', 'inputmode="numeric"') + inp('listPrice', 'Annonceret pris (kr)', 'inputmode="decimal"') + '</div></div>' +
         '<div class="card"><div class="hd"><h2>4 · Udstyr <span class="cnt">' + nw.equip.filter(function (e) { return e.on; }).length + '</span></h2></div>' +
@@ -352,7 +352,7 @@
     if (String(f.listPrice).trim() && (list === null || list < 0)) return bad('Den annoncerede pris skal være et beløb.', 'n-listPrice');
     if (String(f.km).trim() && (km === null || km < 0 || Math.floor(km) !== km)) return bad('Km skal være et helt tal.', 'n-km');
     if (!f.boughtDate) return bad('Vælg en købsdato.', 'n-boughtDate');
-    if (!f.channel) return bad('Vælg indkøbskanal. Den bestemmer bilens første status og de faste omkostninger.', 'n-channel');
+    if (!f.channel) return bad('Vælg indkøbskanal. Den bestemmer de faste omkostninger.', 'n-channel');
     var fields = { reg: reg, model: f.model.trim(), variant: f.variant.trim(), year: (f.year || '').trim(), vin: vin, fuel: f.fuel.trim(), color: f.color.trim(), firstReg: f.firstReg || '',
       km: km, channel: f.channel, boughtDate: f.boughtDate, buyPrice: buy, listPrice: list, motKm: f.motKm, motDate: f.motDate || '', nextInspection: f.nextInspection || '' };
     var equipment = nw.equip.filter(function (e) { return e.on; }).map(function (e) { return { id: e.id, name: e.name, source: e.source }; });
@@ -424,7 +424,7 @@
       '<div class="card"><div class="hd"><h2>Salgskanaler</h2></div><div class="field"><label for="s-sales">Én pr. linje (vises, når du markerer en bil som solgt)</label><textarea id="s-sales" rows="6">' + esc(draft.sales) + '</textarea></div>' +
       '<button class="btn" id="s-savesales" type="button">Gem salgskanaler</button></div>' +
       '</div><div>' +
-      '<div class="card"><div class="hd"><h2>Indkøbskanaler og faste omkostninger</h2></div><p class="muted small" style="margin-top:0">Når du opretter en bil, lægges kanalens faste omkostninger automatisk i bilens udgifter. “Starter som Under transport” bruges fx til AutoProff.</p>' +
+      '<div class="card"><div class="hd"><h2>Indkøbskanaler og faste omkostninger</h2></div><p class="muted small" style="margin-top:0">Når du opretter en bil, lægges kanalens faste omkostninger automatisk i bilens udgifter. Alle nye biler starter som Købt. “Bilen kommer med transport” bruges fx til AutoProff: registreringsattesten bliver et punkt på to-do-listen. Tvist-uret (24 timer) styres af kanalens eget tvist-flag.</p>' +
       draft.channels.map(function (c, i) { return channelEditor(c, i); }).join('') +
       '<div class="row"><button class="btn" id="c-add" type="button">+ Ny kanal</button><button class="btn primary" id="c-save" type="button">Gem kanaler</button></div><div class="errtxt" id="c-err" role="alert"></div></div>' +
       '<div class="card"><div class="hd"><h2>Om appen</h2></div><p class="small muted" style="margin:0">Bilarkiv · fase 2' + (BA.S.lastSync ? ' · sidst hentet ' + esc(U.fmtTime(BA.S.lastSync)) : '') + '. På iPhone: åbn i Safari → Del → Føj til hjemmeskærm.</p>' +
@@ -448,7 +448,7 @@
   function channelEditor(c, i) {
     return '<div class="card" style="background:var(--surface-2)" data-ch="' + i + '"><div class="row between"><div class="field" style="flex:1;margin:0"><label>Navn</label><input data-cf="name" value="' + esc(c.name) + '" maxlength="60"></div>' +
       '<button class="icon-btn del" type="button" data-cdel="' + i + '" aria-label="Fjern kanalen">✕</button></div>' +
-      '<label class="check"><input type="checkbox" data-cf="transit"' + (c.transit ? ' checked' : '') + '> Starter som “Under transport”</label>' +
+      '<label class="check"><input type="checkbox" data-cf="transit"' + (c.transit ? ' checked' : '') + '> Bilen kommer med transport (fx AutoProff): registreringsattesten bliver et punkt på to-do-listen</label>' +
       '<label class="check"><input type="checkbox" data-cf="dispute"' + (chanFlag(c, 'dispute') ? ' checked' : '') + '> Har tvist-ur (24 timer efter ankomst)</label>' +
       '<label class="check"><input type="checkbox" data-cf="dereg"' + (chanFlag(c, 'dereg') ? ' checked' : '') + '> Bilen skal afmeldes / omregistreres</label>' +
       c.costs.map(function (x, j) {

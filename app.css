@@ -287,3 +287,37 @@ table.lines tr.cur td { background: var(--surface-2); }
 .signdone { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; padding: 12px 14px; border-radius: var(--radius-sm); background: var(--ok-soft); }
 .signdone[hidden] { display: none; }
 @media (max-width: 899px) { .signdlg .docprev { order: -1; } }
+
+/* ---------- Fase 5: forløbet, låsen og svar-kortet ---------- */
+.steps.static .step { cursor: default; }
+.card.flow { border-color: var(--accent-fill); }
+.flowguide { margin: 0 0 12px; padding-left: 20px; color: var(--muted); font-size: 14.5px; }
+.flowguide li { margin: 3px 0; }
+.flowwarn { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.rqs { margin: 4px 0 8px; }
+.rq { display: flex; align-items: flex-start; gap: 10px; padding: 10px 6px; border-top: 1px solid var(--line); border-radius: 6px; }
+.rq:first-child { border-top: 0; }
+.rq .main { flex: 1; min-width: 0; } .rq .t { overflow-wrap: anywhere; } .rq .m { color: var(--muted); font-size: 13px; }
+.rq.ok .t { color: var(--muted); }
+.rq-ic { flex: none; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; border: 2px solid var(--line-strong); font-size: 14px; line-height: 1; margin-top: 2px; }
+.rq-ic.ok { background: var(--ok); border-color: var(--ok); color: #fff; }
+.rq-b { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.rq-b .btn.small { min-height: 40px; }
+.rq.flash { background: var(--warn-soft); }
+.rqtasks { margin: 10px 0 4px; }
+.rqtasks .eyebrow { margin-bottom: 2px; }
+.flownext { width: 100%; margin-top: 14px; min-height: 56px; font-size: 17px; }
+.flownext.locked { background: var(--surface-2); color: var(--muted); border: 1px dashed var(--line-strong); cursor: not-allowed; }
+.flowlock { margin-top: 6px; text-align: center; }
+.flowadd { margin: -6px 0 14px; }
+.flowadd[hidden] { display: none; }
+.check.accept { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; min-height: 40px; }
+.ans { margin: 0; }
+.ansrow { padding: 9px 0; border-top: 1px solid var(--line); }
+.ansrow:first-child { border-top: 0; }
+.ansrow dt { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 700; margin: 0 0 2px; }
+.ansrow dd { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .rq { flex-wrap: wrap; }
+  .rq-b { width: 100%; justify-content: flex-start; padding-left: 34px; }
+}
