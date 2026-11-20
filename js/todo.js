@@ -47,6 +47,7 @@ var TODO_ = (function () {
   var LEGACY_STAGE = { 'Under transport': 'Købt', 'Gennemgået': 'Ankommet', 'Fotograferet': 'Klargøring' };
   var STAGE_PATH = ['Købt', 'Ankommet', 'Klargøring', 'Annonceret', 'Solgt', 'Udleveret'];
   var MIN_PHOTOS = 10;             // billeder, før en bil kan sættes til salg (kan springes over med en begrundelse)
+  function isTrade(chan) { return /^byttebil$/i.test(String(chan || '').trim()); }
   function stageOf(status) { return LEGACY_STAGE[status] || status; }
   function stageLabel(status) { var s = stageOf(status); return STAGE_LABELS[s] || s; }
 
@@ -133,7 +134,8 @@ var TODO_ = (function () {
     if (!born('Købt') && !born('Under transport')) return 0;
     st = st || settingsOf({});
     var list = ARRIVAL_STATUSES.slice();
-    if (!channelTransit(st, car.channel)) list.unshift('Købt');
+    // En byttebil er heller ikke din, før du har trykket Overtaget (du overtager den, når kunden henter sin bil)
+    if (!channelTransit(st, car.channel) && !isTrade(car.channel)) list.unshift('Købt');
     var best = 0;
     list.forEach(function (s) { var t = sa[s]; if (typeof t === 'number' && t > 0 && (!best || t < best)) best = t; });
     return best;
@@ -281,9 +283,11 @@ var TODO_ = (function () {
     }
 
     if (stage === 'Købt') {
-      var trade = /^byttebil$/i.test(String(chan || '').trim());
+      var trade = isTrade(chan);
       out.next = { to: 'Ankommet', label: trade ? 'Overtaget' : 'Modtaget' };
-      out.guide = ['Bilen er købt, men er ikke hos dig endnu.', 'Når den står hos dig, så tryk ' + out.next.label + '.' + (channelFlag(st, chan, 'dispute') ? ' Så starter tvist-uret på 24 timer.' : '')];
+      out.guide = trade
+        ? ['Byttebilen er aftalt og købsaftalen er skrevet under, men bilen er ikke din endnu.', 'Du overtager den, når kunden henter sin bil. Tryk Overtaget, når du har den.', 'Tjek ved overtagelsen: begge nøgler, servicebog og registreringsattest. Så skal bilen afmeldes eller omregistreres.']
+        : ['Bilen er købt.', 'Når den står hos dig, så tryk ' + out.next.label + '.' + (channelFlag(st, chan, 'dispute') ? ' Så starter tvist-uret på 24 timer.' : '')];
     } else if (stage === 'Ankommet') {
       var g = docs ? docs.progress('gennemgang', items, car.id) : { done: 0, total: 0, fejl: 0 };
       var finds = docs && g.total > 0 ? unhandledFinds(items, car.id, docs, g) : [];
@@ -330,12 +334,16 @@ var TODO_ = (function () {
     if (['Ankommet', 'Klargøring', 'Annonceret', 'Solgt'].indexOf(stage) >= 0 && channelTransit(st, chan) && arrivedAt(car, st) && !regcertDone(items, car.id)) {
       out.warnings.push({ key: 'regcert', text: 'Registreringsattesten er ikke modtaget og lagt i mappen endnu.', action: { t: 'tick', tick: 'regcert', label: 'Modtaget' } });
     }
+    // Afmeld/omregistrer (byttebil og privat): en advarsel og en afkrydsning, ikke en lås
+    if (['Ankommet', 'Klargøring', 'Annonceret', 'Solgt'].indexOf(stage) >= 0 && channelFlag(st, chan, 'dereg') && arrivedAt(car, st) && !lastTick(items, car.id, 'dereg')) {
+      out.warnings.push({ key: 'dereg', text: 'Bilen er ikke afmeldt eller omregistreret endnu.', action: { t: 'tick', tick: 'dereg', label: 'Gjort' } });
+    }
     // Tvist-fristen (AutoProff): på Klargøring er den et krav; på Gennemgang og Solgt (en bil kan sælges få timer efter ankomsten) er den en advarsel
     if ((stage === 'Ankommet' || stage === 'Solgt') && channelFlag(st, chan, 'dispute') && arrivedAt(car, st) && !disputeSettled(items, car.id)) {
       out.warnings.push({ key: 'tvist', text: 'Tvist-fristen (24 timer efter ankomst) er ikke afklaret endnu.', action: { t: 'tick', tick: 'dispute', label: 'Afklaret' } });
     }
     // Må en bil, der ikke er kommet endnu, markeres solgt? Ikke hvis kanalen har transport eller tvist-ur: så ville ankomsten (og tvist-uret) aldrig blive registreret.
-    out.sellEarly = stage === 'Ankommet' || stage === 'Klargøring' || (stage === 'Købt' && !channelTransit(st, chan) && !channelFlag(st, chan, 'dispute'));
+    out.sellEarly = stage === 'Ankommet' || stage === 'Klargøring' || (stage === 'Købt' && !channelTransit(st, chan) && !channelFlag(st, chan, 'dispute') && !isTrade(chan));
     out.open = out.reqs.filter(function (r) { return !r.ok; }).length;
     out.locked = out.open > 0;
     return out;
@@ -414,7 +422,7 @@ var TODO_ = (function () {
       var shorts = f.reqs.filter(function (r) { return !r.ok; }).map(function (r) { return r.short; });
       if (f.stage === 'Købt') {
         var bd2 = dayNum(c.boughtDate), td2 = dayNum(today), wait = bd2 !== null && td2 !== null ? Math.max(0, td2 - bd2) : 0;
-        add({ key: 'flow:' + c.id, kind: 'flow', prio: wait >= 7 ? 1 : 2, carId: c.id, text: label + ' er købt – tryk ' + f.next.label + ', når den er her',
+        add({ key: 'flow:' + c.id, kind: 'flow', prio: wait >= 7 && !isTrade(c.channel) ? 1 : 2, carId: c.id, text: isTrade(c.channel) ? label + ' (byttebil) overtages, når kunden henter sin bil – tryk ' + f.next.label + ', når du har den' : label + ' er købt – tryk ' + f.next.label + ', når den er her',
           sub: wait > 0 ? 'Købt for ' + wait + (wait === 1 ? ' dag' : ' dage') + ' siden' : 'Købt i dag', at: bd2 !== null ? bd2 * DAY : NEVER, label: '', action: null });
       } else if (f.stage === 'Ankommet') {
         var arr2 = arrivedAt(c, st), g = f.reqs[0];

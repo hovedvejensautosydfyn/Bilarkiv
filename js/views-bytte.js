@@ -191,7 +191,7 @@
     BA.store.createCar({ id: id, fields: fields, equipment: st.equip || [], applyChannelCosts: true });
     BA.store.makeDocument(id, 'bytte', c.vals);
     st = blank(); clearTimeout(saveTm); U.safeStore.del(KEY); pads = {};
-    BA.toast('Byttebilen er oprettet. Købsaftalen laves som PDF og ligger under Papirer om et øjeblik.', { long: true });
+    BA.toast('Byttebilen er oprettet som Købt. Købsaftalen laves som PDF og ligger under Papirer om et øjeblik. Tryk Overtaget på bilen, når kunden har afleveret den.', { long: true });
     BA.go('#/bil/' + id);
   }
 })();

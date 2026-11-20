@@ -119,7 +119,7 @@
     var to = f.next.to;
     var done = function () {
       BA.store.updateCar(car.id, { status: to });
-      BA.toast(to === 'Ankommet' ? 'Bilen er modtaget. Gå den igennem.' : to === 'Klargøring' ? 'Gennemgangen er færdig. Nu skal bilen gøres klar.' : to === 'Annonceret' ? 'Bilen er sat til salg.' : 'Bilen er udleveret.');
+      BA.toast(to === 'Ankommet' ? (f.next.label === 'Overtaget' ? 'Bilen er overtaget. Gå den igennem, og få den afmeldt eller omregistreret.' : 'Bilen er modtaget. Gå den igennem.') : to === 'Klargøring' ? 'Gennemgangen er færdig. Nu skal bilen gøres klar.' : to === 'Annonceret' ? 'Bilen er sat til salg.' : 'Bilen er udleveret.');
     };
     if (to === 'Udleveret' && f.warnings.length) {
       BA.confirm('Der er en advarsel', f.warnings.map(function (w) { return w.text; }).join(' ') + ' Vil du alligevel markere bilen som udleveret?', 'Ja, udleveret', false).then(function (yes) { if (yes) done(); });
