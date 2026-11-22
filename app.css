@@ -321,3 +321,18 @@ table.lines tr.cur td { background: var(--surface-2); }
   .rq { flex-wrap: wrap; }
   .rq-b { width: 100%; justify-content: flex-start; padding-left: 34px; }
 }
+
+/* Rullemenuen "Annonceret" øverst på bilen */
+.dd { position: relative; display: inline-block; }
+.dd-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; min-width: 250px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); padding: 6px; box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+.dd-menu[hidden] { display: none; }
+.dd-item { display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 6px 10px; border-radius: 8px; cursor: pointer; }
+.dd-item:hover { background: var(--surface-2); }
+.dd-item input { width: 22px; height: 22px; accent-color: var(--accent-fill); flex: none; }
+.dd-name { flex: 1; font-size: 15px; }
+@media (max-width: 600px) { .dd-menu { left: 0; right: auto; } }
+
+/* Annonce-steder på bilkortene (lager) */
+.adrow { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 2px; }
+.adchip { font-size: 11.5px; line-height: 1; padding: 4px 7px; border-radius: 999px; border: 1px dashed var(--line-strong); color: var(--muted); white-space: nowrap; }
+.adchip.on { background: var(--ok-soft); color: var(--ok); border: 1px solid transparent; font-weight: 600; }

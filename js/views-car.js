@@ -343,10 +343,21 @@
   // ---------------------------------------------------------------------------
   // Header og forløb
   // ---------------------------------------------------------------------------
+  /** Rullemenuen "Annonceret": hvor bilen er lagt op. Et kryds gemmes på bilen (tjek-post i listen krav) og vises med dato. */
+  function adMenuHtml(car) {
+    var T = BA.todo, items = BA.S.items, open = !!openFlags.admenu;
+    var on = T.AD_CHANNELS.filter(function (c) { return T.adOn(items, car.id, c[0]); }).length;
+    return '<div class="dd"><button type="button" class="btn" data-act="ad-menu" aria-haspopup="true" aria-expanded="' + (open ? 'true' : 'false') + '">Annonceret' + (on ? ' (' + on + ')' : '') + ' ▾</button>' +
+      '<div class="dd-menu" role="group" aria-label="Hvor er bilen annonceret?"' + (open ? '' : ' hidden') + '>' + T.AD_CHANNELS.map(function (c) {
+        var k = T.kravItem(items, car.id, 'annonce_' + c[0]), isOn = !!k && k.state === 'ok';
+        return '<label class="dd-item"><input type="checkbox" data-act="ad-toggle" data-key="' + c[0] + '"' + (isOn ? ' checked' : '') + '><span class="dd-name">' + esc(c[1]) + '</span>' +
+          (isOn && k.at ? '<span class="muted small">' + esc(U.fmtLocal(k.at).slice(0, 10)) + '</span>' : '') + '</label>';
+      }).join('') + '</div></div>';
+  }
   function headHtml(car) {
     var sub = [car.variant, car.year, car.km != null ? U.fmtN(car.km) + ' km' : null, car.fuel, car.color].filter(Boolean).join(' · ');
     return '<div class="carhead"><div>' + U.plate(car.reg, true) + '<h1>' + esc(car.model || 'Uden navn') + '</h1><div class="muted">' + esc(sub) + '</div></div>' +
-      '<div class="row"><span class="chip big ' + BA.statusClass(car.status) + '">' + esc(BA.statusLabel(car.status)) + '</span><button class="btn" type="button" data-act="adcopy">Kopiér til AutoDesktop</button></div></div>';
+      '<div class="row"><span class="chip big ' + BA.statusClass(car.status) + '">' + esc(BA.statusLabel(car.status)) + '</span>' + adMenuHtml(car) + '<button class="btn" type="button" data-act="adcopy">Kopiér til AutoDesktop</button></div></div>';
   }
   /** Forløbet og låsen (views-flow.js): trinene vises kun, de kan ikke trykkes på. Man kommer videre med knappen, når alt er klaret. */
   function stepsHtml(car) { return BA.flowHtml ? BA.flowHtml(car) : ''; }
@@ -381,6 +392,7 @@
     }
     if (!page || page.id !== id || page.root !== root || !root.querySelector('#c-head')) {
       page = { id: id, root: root, cache: {}, allPhotos: false, shellSold: BA.isSold(car.status) };
+      openFlags.admenu = false;
       root.innerHTML = shell(car);
       bindPage(root);
     }
@@ -400,7 +412,10 @@
   }
   function paint(root, car) {
     page.dirty = false;
+    // Står tastaturfokus i rullemenuen, når toppen tegnes om (kryds ændrer tælleren), sættes det tilbage på samme punkt
+    var ae = document.activeElement, fk = ae && ae.closest && ae.closest('.dd') ? (ae.getAttribute('data-key') || '') : null;
     setHtml($('#c-head', root), 'head', headHtml(car));
+    if (fk !== null) { var tgt = fk ? root.querySelector('.dd-item input[data-key="' + fk + '"]') : root.querySelector('[data-act=ad-menu]'); if (tgt && document.activeElement !== tgt) tgt.focus(); }
     setHtml($('#c-steps', root), 'steps', stepsHtml(car));
     flowAddState(car);
     SECTIONS.forEach(function (s) {
@@ -631,6 +646,12 @@
     if (BA.flowAct && BA.flowAct(act, car, el)) return;
     switch (act) {
       case 'sell': openSale(car); break;
+      case 'ad-menu': {
+        // Åbnes og lukkes direkte i siden (uden at tegne hovedet om, så fokus og tastatur ikke forstyrres)
+        openFlags.admenu = !openFlags.admenu;
+        var m = root.querySelector('.dd-menu'); if (m) m.hidden = !openFlags.admenu; el.setAttribute('aria-expanded', openFlags.admenu ? 'true' : 'false');
+        break;
+      }
       case 'accept': if (item) BA.store.updateItem(item.id, { accepted: el.checked }); break;
       case 'reopen': setStatus(car, 'Annonceret'); break;
       case 'adcopy': openAd(car); break;
@@ -701,10 +722,24 @@
     }, function (er) { btn.disabled = false; BA.toast('Kunne ikke hente alle billeder: ' + er.message, { long: true }); });
   }
 
+  function closeAdMenu(root) {
+    openFlags.admenu = false;
+    var m = root.querySelector('.dd-menu'); if (m) m.hidden = true;
+    var b = root.querySelector('[data-act=ad-menu]'); if (b) b.setAttribute('aria-expanded', 'false');
+  }
   function bindPage(root) {
     if (BA.todoBind) BA.todoBind(root);      // knapperne i bilens påmindelser (✓ Ladet, ✓ Pris tjekket …)
     if (root.__baBound) return;
     root.__baBound = true;
+    // Rullemenuen lukkes af klik et vilkårligt sted udenfor (også topmenuen) og af Escape – lyttere på hele dokumentet, sat én gang
+    if (!BA.__adMenuDoc) {
+      BA.__adMenuDoc = true;
+      document.addEventListener('click', function (e) { if (openFlags.admenu && page && page.root && !(e.target.closest && e.target.closest('.dd'))) closeAdMenu(page.root); });
+      document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Escape' || !openFlags.admenu || !page || !page.root) return;
+        closeAdMenu(page.root); var ab = page.root.querySelector('[data-act=ad-menu]'); if (ab) ab.focus();
+      });
+    }
     root.addEventListener('click', function (e) {
       if (!page) return;
       var t = e.target.closest('[data-toggle]');

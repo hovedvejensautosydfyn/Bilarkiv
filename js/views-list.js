@@ -71,7 +71,7 @@
   // ---------------------------------------------------------------------------
   // Lager og solgte
   // ---------------------------------------------------------------------------
-  var ui = { q: '', status: '', sort: 'age', soldYear: '' };
+  var ui = { q: '', status: '', sort: 'age', soldYear: '', moreAds: false };
   BA.listUi = ui;
 
   function matches(c) {
@@ -80,6 +80,21 @@
     return [c.model, c.reg, c.vin, c.buyer, c.year, c.variant, c.notes].some(function (v) { return String(v || '').toLowerCase().indexOf(q) >= 0; });
   }
 
+  /** Annonce-stederne på bilkortet: krydset (grønt) eller ikke (dæmpet). Vises for biler til salg og for biler, der allerede er lagt op et sted. */
+  var AD_SHORT = { bilinfo: 'Bilinfo', autodesktop: 'AutoDesktop', facebook: 'Facebook', tiktok: 'TikTok', instagram: 'Instagram' };
+  function adStates(c) {
+    var T = BA.todo, tj = BA.store.itemsOf(c.id, 'tjek');
+    return T.AD_CHANNELS.map(function (ch) { return { key: ch[0], name: ch[1], short: AD_SHORT[ch[0]] || ch[1], on: T.adOn(tj, c.id, ch[0]) }; });
+  }
+  function adRow(c) {
+    var st = adStates(c), on = st.filter(function (x) { return x.on; });
+    if (BA.stage(c.status) !== 'Annonceret' && !on.length) return '';
+    return '<div class="adrow" role="group" aria-label="Annonceret på: ' + esc(on.map(function (x) { return x.name; }).join(', ') || 'ingen steder endnu') + '">' + st.map(function (x) {
+      return '<span class="adchip ' + (x.on ? 'on' : 'off') + '" title="' + esc(x.name + (x.on ? ': annonceret' : ': ikke annonceret')) + '">' + (x.on ? '✓ ' : '') + esc(x.short) + '</span>';
+    }).join('') + '</div>';
+  }
+  /** Bil til salg, der ikke er lagt op alle steder endnu. */
+  function canAdvertiseMore(c) { return BA.stage(c.status) === 'Annonceret' && adStates(c).some(function (x) { return !x.on; }); }
   function carCard(c) {
     var st = BA.S.settings, r = BA.calc(c, BA.S.items, st), cover = BA.coverOf(c);
     var sold = BA.isSold(c.status);
@@ -103,7 +118,7 @@
     return '<a class="carcard" href="#/bil/' + esc(c.id) + '">' +
       '<div class="ph">' + (cover ? '<img data-iid="' + esc(cover.id) + '" alt="" data-ph="Intet billede">' : 'Intet billede endnu') + '<span class="st chip ' + BA.statusClass(c.status) + '">' + esc(BA.statusLabel(c.status)) + '</span></div>' +
       '<div class="cb"><div class="row between">' + U.plate(c.reg) + days + (sold && claimsN ? '<span class="chip bad">' + claimsN + ' reklamation' + (claimsN > 1 ? 'er' : '') + '</span>' : '') + '</div>' +
-      '<h3>' + esc(c.model || 'Uden navn') + '</h3><div class="sub">' + esc(sub || ' ') + '</div>' +
+      '<h3>' + esc(c.model || 'Uden navn') + '</h3><div class="sub">' + esc(sub || ' ') + '</div>' + adRow(c) +
       '<dl class="kv">' + kv.map(function (x) { return '<div><dt>' + x[0] + '</dt><dd>' + x[1] + '</dd></div>'; }).join('') + '</dl></div></a>';
   }
 
@@ -124,7 +139,9 @@
     var all = BA.S.cars.filter(function (c) { return !BA.isSold(c.status); });
     var counts = {};
     all.forEach(function (c) { var s = BA.stage(c.status); counts[s] = (counts[s] || 0) + 1; });
-    var list = all.filter(function (c) { return (!ui.status || BA.stage(c.status) === ui.status) && matches(c); });
+    var nMore = all.filter(canAdvertiseMore).length;   // biler til salg, der ikke er lagt op alle steder
+    if (!nMore) ui.moreAds = false;
+    var list = all.filter(function (c) { return (!ui.status || BA.stage(c.status) === ui.status) && (!ui.moreAds || canAdvertiseMore(c)) && matches(c); });
     sortCars(list, false);
     var stocks = BA.todo.STAGE_PATH.slice(0, 4);
     var h = '<h1 class="page">Biler på lager <span class="muted" style="font-size:.6em">' + all.length + '</span></h1>' + offlineBanner() + backupWarning(false) +
@@ -132,9 +149,9 @@
       BA.options([{ value: 'age', label: 'Længst på lager' }, { value: 'new', label: 'Nyeste først' }, { value: 'profit', label: 'Højest forventet avance' }, { value: 'status', label: 'Efter status' }], ui.sort) + '</select>' +
       '<a class="btn" href="#/bytte">Byttebil</a><a class="btn primary" href="#/ny">+ Ny bil</a></div>' +
       '<div class="chips" style="margin-bottom:14px"><button type="button" class="chip big ' + (ui.status ? '' : 'sel') + '" data-status="">Alle ' + all.length + '</button>' +
-      stocks.filter(function (s) { return counts[s]; }).map(function (s) { return '<button type="button" class="chip big ' + (ui.status === s ? 'sel' : '') + '" data-status="' + esc(s) + '">' + esc(BA.todo.STAGE_LABELS[s]) + ' ' + counts[s] + '</button>'; }).join('') + '</div>';
+      stocks.filter(function (s) { return counts[s]; }).map(function (s) { return '<button type="button" class="chip big ' + (ui.status === s ? 'sel' : '') + '" data-status="' + esc(s) + '">' + esc(BA.todo.STAGE_LABELS[s]) + ' ' + counts[s] + '</button>'; }).join('') + (nMore ? '<button type="button" class="chip big ' + (ui.moreAds ? 'sel' : '') + '" data-moreads aria-pressed="' + (ui.moreAds ? 'true' : 'false') + '">Kan annonceres flere steder ' + nMore + '</button>' : '') + '</div>';
     if (!BA.S.loaded) h += '<div class="cars"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>';
-    else if (!list.length) h += '<div class="empty">' + (ui.q || ui.status ? 'Ingen biler matcher.' : 'Ingen biler på lager endnu. Tryk “+ Ny bil” for at oprette den første.') + '</div>';
+    else if (!list.length) h += '<div class="empty">' + (ui.q || ui.status || ui.moreAds ? 'Ingen biler matcher.' : 'Ingen biler på lager endnu. Tryk “+ Ny bil” for at oprette den første.') + '</div>';
     else h += '<div class="cars">' + list.map(carCard).join('') + '</div>';
     var focusQ = document.activeElement && document.activeElement.id === 'q';
     var pos = focusQ ? document.activeElement.selectionStart : 0;
@@ -144,6 +161,7 @@
     if (focusQ) { q.focus(); try { q.setSelectionRange(pos, pos); } catch (e) { /* ingen */ } }
     $('#sortsel', root).onchange = function (e) { ui.sort = e.target.value; V.lager(root); };
     U.$$('[data-status]', root).forEach(function (b) { b.onclick = function () { ui.status = b.getAttribute('data-status'); V.lager(root); }; });
+    var mb = $('[data-moreads]', root); if (mb) mb.onclick = function () { ui.moreAds = !ui.moreAds; V.lager(root); };
     BA.img.hydrate(root);
   };
 

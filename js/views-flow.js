@@ -132,6 +132,7 @@
     var key = el.getAttribute('data-key'), r;
     switch (act) {
       case 'flow-next': next(car); return true;
+      case 'ad-toggle': BA.store.setTjek(car.id, 'krav', 'annonce_' + el.getAttribute('data-key'), el.checked ? 'ok' : '', ''); return true;
       case 'flow-sell': BA.carHelpers.openSale(car); return true;
       case 'flow-go': r = reqByKey(car, key); if (r) go(car, r); return true;
       case 'flow-confirm': r = reqByKey(car, key); if (r && r.manual) BA.store.setTjek(car.id, 'krav', key, 'ok', ''); return true;

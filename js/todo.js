@@ -227,6 +227,9 @@ var TODO_ = (function () {
     return itemsOfCar(items, carId, 'fil').some(function (f) { return f.kind === 'Registreringsattest'; });
   }
   function isLevering(t) { return t.phase === 'levering'; }
+  /** Hvor bilen er annonceret (rullemenuen "Annonceret" på bilen): tjek-poster i listen krav med nøglen annonce_<sted>, state ok. */
+  var AD_CHANNELS = [['bilinfo', 'Bilinfo'], ['autodesktop', 'AutoDesktop'], ['facebook', 'Facebook Marketplace'], ['tiktok', 'TikTok'], ['instagram', 'Instagram']];
+  function adOn(items, carId, key) { var k = kravItem(items, carId, 'annonce_' + key); return !!k && k.state === 'ok'; }
   /** Tvist-fristen er afklaret: afkrydset, eller du har sagt "ikke relevant" (med begrundelse) til kravet på Klargøring. */
   function disputeSettled(items, carId) {
     if (lastTick(items, carId, 'dispute')) return true;
@@ -314,7 +317,9 @@ var TODO_ = (function () {
       if (hasPrice && typeof ctx.belowMin === 'function' && ctx.belowMin(car) === true) {
         add('avance', 'avance', 'Avancen er under grænsen – jeg accepterer den', false, { manual: true, action: { t: 'goto', id: 's-econ' } });
       }
-      add('annonce', 'annonce', 'Annoncen er lagt op på AutoDesktop og Bilinfo', false, { manual: true, action: { t: 'ad' } });
+      // Sættes kryds ved både Bilinfo og AutoDesktop i rullemenuen "Annonceret" øverst på bilen, er kravet klaret; ellers kan du bekræfte det her
+      var onBi = adOn(items, car.id, 'bilinfo'), onAd = adOn(items, car.id, 'autodesktop');
+      add('annonce', 'annonce', 'Annoncen er lagt op på AutoDesktop og Bilinfo', onBi && onAd, { manual: true, detail: onBi && onAd ? '' : (onBi ? 'Bilinfo ✓ · AutoDesktop mangler' : onAd ? 'AutoDesktop ✓ · Bilinfo mangler' : 'Sæt kryds under “Annonceret” øverst, eller tryk Det er gjort'), action: { t: 'ad' } });
       out.next = { to: 'Annonceret', label: 'Klargjort + til salg' };
       out.guide = ['Lav det, der står på listen herunder. Bilen kan først sættes til salg, når alt er gjort.', 'Skal der laves noget ekstra, som ikke er standard, før bilen annonceres? Skriv det i feltet herunder – så kan bilen ikke sættes til salg, før det er lavet.'];
     } else if (stage === 'Annonceret') {
@@ -503,7 +508,7 @@ var TODO_ = (function () {
     compute: compute, count: count, chargeInfo: chargeInfo, bookings: bookings, lastTick: lastTick, settingsOf: settingsOf, channelFlag: channelFlag,
     carLabel: carLabel, fmtLeft: fmtLeft, fmtAgo: fmtAgo, fmtIso: fmtIso, dayNum: dayNum, addDaysIso: addDaysIso, bookingText: bookingText, bookingSub: bookingSub,
     onStock: onStock, arrivedAt: arrivedAt, channelTransit: channelTransit,
-    statusBeforeSale: statusBeforeSale, STAGE_LABELS: STAGE_LABELS, STAGE_PATH: STAGE_PATH, MIN_PHOTOS: MIN_PHOTOS, stageOf: stageOf, stageLabel: stageLabel, flow: flow, kravItem: kravItem, regcertDone: regcertDone, photoCount: photoCount
+    AD_CHANNELS: AD_CHANNELS, adOn: adOn, statusBeforeSale: statusBeforeSale, STAGE_LABELS: STAGE_LABELS, STAGE_PATH: STAGE_PATH, MIN_PHOTOS: MIN_PHOTOS, stageOf: stageOf, stageLabel: stageLabel, flow: flow, kravItem: kravItem, regcertDone: regcertDone, photoCount: photoCount
   };
 })();
 if (typeof window !== 'undefined' && window.BA) window.BA.todo = TODO_;
