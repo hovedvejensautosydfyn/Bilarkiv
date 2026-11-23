@@ -41,15 +41,44 @@
     } else if (a.kind === 'booking') {
       BA.store.updateItem(a.id, { done: true });
       BA.toast('Markeret som afholdt ✓', { action: 'Fortryd', onAction: function () { BA.store.updateItem(a.id, { done: false }); }, ms: 7000 });
+    } else if (a.kind === 'bookingready') {
+      var bk = BA.store.item(a.id); if (!bk) return;
+      var before = { ready: bk.ready || '', readyDay: bk.readyDay || '' };
+      BA.store.updateItem(a.id, T.readyPatch(bk, BA.S.settings, U.local));
+      BA.toast('Bilen er klar ✓', { action: 'Fortryd', onAction: function () { BA.store.updateItem(a.id, before); }, ms: 7000 });
+    } else if (a.kind === 'bookingcancel') {
+      BA.store.updateItem(a.id, { cancelled: true });
+      BA.toast('Aftalen er aflyst.', { action: 'Fortryd', onAction: function () { BA.store.updateItem(a.id, { cancelled: false }); }, ms: 9000 });
     }
+  }
+
+  /** Et ønske fra h-auto.dk: ring op, og book tiden direkte fra linjen. */
+  function leadHtml(e) {
+    var it = e.lead ? BA.store.item(e.id) : null;
+    if (!it) return '';
+    var tel = String(it.phone || '').replace(/[^0-9+]/g, '');
+    return (tel ? '<a class="btn small" href="tel:' + esc(tel) + '" aria-label="' + esc('Ring til ' + (it.who || 'kunden')) + '">Ring</a>' : '') +
+      '<button type="button" class="btn small primary" data-todo-book="' + esc(e.key) + '" aria-label="' + esc('Book tid til ' + (it.who || 'kunden')) + '">Book tid</button>';
   }
 
   function rowHtml(e) {
     var btn = e.action ? '<button type="button" class="btn small todo-ok" data-todo-act="' + esc(e.key) + '" aria-label="' + esc(e.label + ': ' + e.text) + '">✓ ' + esc(e.label) + '</button>' : '';
-    var edit = e.kind === 'todo' || e.kind === 'booking' ? '<button type="button" class="icon-btn" data-todo-edit="' + esc(e.key) + '" aria-label="Ret">✎</button>' : '';
+    var edit = e.kind === 'todo' || e.kind === 'booking' || e.kind === 'prep' || e.kind === 'sold' ? '<button type="button" class="icon-btn" data-todo-edit="' + esc(e.key) + '" aria-label="Ret">✎</button>' : '';
     var link = e.carId ? '<a class="todo-car" href="#/bil/' + esc(e.carId) + '">Åbn bilen ›</a>' : '';
     return '<div class="todo-row p' + e.prio + '" data-key="' + esc(e.key) + '"><div class="main"><div class="t">' + esc(e.text) + '</div>' +
-      (e.sub ? '<div class="m">' + esc(e.sub) + '</div>' : '') + link + '</div><div class="acts">' + edit + btn + '</div></div>';
+      (e.sub ? '<div class="m">' + esc(e.sub) + '</div>' : '') + link + '</div><div class="acts">' + leadHtml(e) + edit + btn + '</div></div>';
+  }
+  /** Lille mærke på en booking: er bilen klar? */
+  function readyChip(b) {
+    var st = T.settingsOf(BA.S.settings);
+    if (!st.bookingChecks.length) return '';
+    var miss = T.bookingMissing(b, BA.S.settings, U.local);
+    return miss.length ? ' <span class="chip warn">Mangler ' + miss.length + '</span>' : ' <span class="chip ok">Klar ✓</span>';
+  }
+  /** Linjen under en booking: kunden, og hvad der mangler (skrevet ud, så det også kan læses på telefon og af en skærmlæser). */
+  function bookingLines(b) {
+    var miss = T.settingsOf(BA.S.settings).bookingChecks.length ? T.bookingMissing(b, BA.S.settings, U.local) : [];
+    return (T.bookingSub(b) ? '<div class="m">' + esc(T.bookingSub(b)) + '</div>' : '') + (miss.length ? '<div class="m">Mangler: ' + esc(miss.join(', ')) + '</div>' : '');
   }
   function groupsHtml(list, opts) {
     opts = opts || {};
@@ -77,6 +106,15 @@
         if (e) perform(e); else BA.toast('Den er allerede krydset af.');
         return;
       }
+      var bkb = ev.target.closest('[data-todo-book]');
+      if (bkb && el.contains(bkb)) {
+        var kb = bkb.getAttribute('data-todo-book');
+        var eb = BA.todoList().filter(function (x) { return x.key === kb; })[0];
+        var lead = eb ? BA.store.item(eb.id) : null;
+        if (lead) openBooking(null, lead.carId || '', { id: lead.id, text: lead.text || '', who: lead.who || '', phone: lead.phone || '',
+          note: String(lead.note || '').replace(/^Tlf\. [^·]*(· )?/, lead.phone ? '' : '$&').trim() });   // telefonen står allerede i sit eget felt
+        return;
+      }
       var ed = ev.target.closest('[data-todo-edit]');
       if (ed && el.contains(ed)) {
         var k2 = ed.getAttribute('data-todo-edit');
@@ -91,24 +129,54 @@
   // ---------------------------------------------------------------------------
   // Bookinger og egne opgaver: dialoger
   // ---------------------------------------------------------------------------
-  function openBooking(item, carId) {
-    var cur = item || { start: null, kind: 'Prøvetur', who: '', phone: '', note: '' };
+  /** lead (valgfri): et ønske fra h-auto.dk. Navn og telefon er udfyldt, og opgaven "Ring til ..." krydses af, når bookingen gemmes. */
+  function openBooking(item, carId, lead) {
+    var cur = item || { start: null, kind: 'Prøvetur', who: lead ? lead.who : '', phone: lead ? lead.phone : '', note: lead ? lead.note : '', ready: '' };
+    var checkList = T.settingsOf(BA.S.settings).bookingChecks, have = T.readyList(cur, U.local);
+    // Værdierne, da dialogen blev åbnet: kun det, du selv ændrer, bliver gemt (en aftale, der flyttes i Google imens, overskrives ikke)
+    var opened = item ? { start: item.start, kind: item.kind, who: item.who || '', phone: item.phone || '', note: item.note || '', ready: item.ready || '', readyDay: item.readyDay || '' } : null;   // de rå værdier: også gamle kryds, der ikke gælder længere, skal kunne ryddes
     var ls = cur.start ? U.local(cur.start) : '';
     var date = ls ? ls.slice(0, 10) : U.today(), time = ls ? ls.slice(11, 16) : '';
     var selCar = item ? item.carId : (carId || '');
     var carSel = item
       ? '<div class="field"><label>Bil</label><div class="pre" style="min-height:0">' + esc(BA.store.car(item.carId) ? T.carLabel(BA.store.car(item.carId)) : 'Bilen findes ikke længere') + '</div></div>'
-      : '<div class="field"><label for="bk-car">Bil *</label><select id="bk-car">' + carOptions(selCar, '– vælg bil –') + '</select><div class="errtxt" data-err="car"></div></div>';
-    var html = '<form novalidate>' + carSel +
-      '<div class="grid2"><div class="field"><label for="bk-date">Dato *</label><input type="date" id="bk-date" value="' + esc(date) + '"><div class="errtxt" data-err="date"></div></div>' +
-      '<div class="field"><label for="bk-time">Klokken *</label><input type="time" id="bk-time" value="' + esc(time) + '"><div class="errtxt" data-err="time"></div></div></div>' +
+      : '<div class="field"><label for="bk-car">Bil *</label><select id="bk-car">' + carOptions(selCar, '– vælg bil –') + '</select><div class="errtxt" data-err="car" role="alert"></div></div>';
+    var html = '<form novalidate>' + (lead && lead.text ? '<div class="banner" style="margin-bottom:10px">' + esc(lead.text) + '</div>' : '') + carSel +
+      '<div class="grid2"><div class="field"><label for="bk-date">Dato *</label><input type="date" id="bk-date" value="' + esc(date) + '"><div class="errtxt" data-err="date" role="alert"></div></div>' +
+      '<div class="field"><label for="bk-time">Klokken *</label><input type="time" id="bk-time" value="' + esc(time) + '"><div class="errtxt" data-err="time" role="alert"></div></div></div>' +
       '<div class="field"><label for="bk-kind">Hvad er det?</label><select id="bk-kind">' + BA.options(T.BOOKING_KINDS, cur.kind || 'Prøvetur') + '</select></div>' +
       '<div class="grid2"><div class="field"><label for="bk-who">Kundens navn</label><input id="bk-who" maxlength="100" value="' + esc(cur.who) + '" autocomplete="off"></div>' +
-      '<div class="field"><label for="bk-phone">Telefon</label><input id="bk-phone" type="tel" inputmode="tel" maxlength="20" value="' + esc(cur.phone) + '" autocomplete="off"><div class="errtxt" data-err="phone"></div></div></div>' +
+      '<div class="field"><label for="bk-phone">Telefon</label><input id="bk-phone" type="tel" inputmode="tel" maxlength="20" value="' + esc(cur.phone) + '" autocomplete="off"><div class="errtxt" data-err="phone" role="alert"></div></div></div>' +
       '<div class="field"><label for="bk-note">Note</label><textarea id="bk-note" rows="2" maxlength="1000">' + esc(cur.note) + '</textarea></div>' +
+      (checkList.length ? '<fieldset style="border:0;padding:0;margin:0 0 12px"><legend class="eyebrow" style="padding:0;margin-bottom:4px">Er bilen klar?</legend>' +
+        checkList.map(function (c) { return '<label class="check"><input type="checkbox" data-bk-check value="' + esc(c) + '"' + (have.indexOf(c) >= 0 ? ' checked' : '') + '> ' + esc(c) + '</label>'; }).join('') + '</fieldset>' : '') +
+      '<div data-bk-warn role="status"></div>' +
       '<div class="actions">' + (item ? '<button type="button" class="btn danger" data-cancelbk>Aflys booking</button>' : '') + '<button type="button" class="btn" data-cancel>Luk</button><button type="submit" class="btn primary">Gem</button></div></form>';
     BA.modal(item ? 'Ret booking' : 'Book prøvetur / fremvisning', html, function (box, close) {
       $('[data-cancel]', box).onclick = function () { close(); };
+      // Advarsler: bilen er ikke klar, eller tiden overlapper en anden aftale. De blokerer ikke: du kan have en god grund.
+      var showWarnings = function () {
+        var cid = item ? item.carId : $('#bk-car', box).value, carObj = cid ? BA.store.car(cid) : null, ctx = BA.todoCtx(), msgs = [];
+        var w = carObj ? T.bookingCarWarning(carObj, ctx) : '';
+        if (w) msgs.push(w);
+        var dv = $('#bk-date', box).value, tv = $('#bk-time', box).value, at = dv && tv ? U.localToMs(dv, tv) : null;
+        if (at !== null) {
+          if (at < Date.now() && (!item || at !== item.start)) msgs.push('Det tidspunkt er allerede passeret.');
+          T.bookingClashes(ctx, at, item ? item.id : '').forEach(function (x) { msgs.push('Du har allerede: ' + T.bookingText(x.booking, x.car, U.local, true) + '.'); });
+        }
+        if (item && have.length && dv && dv !== date) msgs.push('Ny dato: bilen skal tjekkes igen, så krydsene er fjernet.');
+        $('[data-bk-warn]', box).innerHTML = msgs.length ? '<div class="banner warn">' + msgs.map(esc).join('<br>') + '</div>' : '';
+      };
+      // Krydsene gælder den dag, de er sat til. Ændres datoen, fjernes de; sættes den tilbage, kommer de igen.
+      var shownDay = date;
+      var onDay = function () {
+        var dv = $('#bk-date', box).value;
+        if (item && dv && dv !== shownDay) U.$$('[data-bk-check]', box).forEach(function (x) { x.checked = dv === date && have.indexOf(x.value) >= 0; });
+        if (dv) shownDay = dv;
+      };
+      $('#bk-date', box).addEventListener('change', onDay);
+      ['#bk-car', '#bk-date', '#bk-time'].forEach(function (sel) { var f = $(sel, box); if (f) { f.addEventListener('change', showWarnings); f.addEventListener('input', showWarnings); } });
+      showWarnings();
       var cb = $('[data-cancelbk]', box);
       if (cb) cb.onclick = function () {
         close();
@@ -131,8 +199,10 @@
         else if (d && ms === null) { err('time', 'Det tidspunkt findes ikke.'); bad = true; }
         if (ph && !/^[0-9+() \-]{3,20}$/.test(ph)) { err('phone', 'Telefonnummeret ser forkert ud.'); bad = true; }
         if (bad) return;
-        var data = { start: ms, kind: $('#bk-kind', box).value, who: $('#bk-who', box).value.trim().replace(/\s+/g, ' '), phone: ph, note: $('#bk-note', box).value.trim() };
-        if (item) BA.store.updateItem(item.id, data); else BA.store.addItem(car, 'booking', data);
+        var ready = U.$$('[data-bk-check]', box).filter(function (x) { return x.checked; }).map(function (x) { return x.value; }).join('|');
+        var data = { start: ms, kind: $('#bk-kind', box).value, who: $('#bk-who', box).value.trim().replace(/\s+/g, ' '), phone: ph, note: $('#bk-note', box).value.trim(), ready: ready, readyDay: ready ? d : '' };
+        if (lead && lead.id) data.leadId = lead.id;      // serveren krydser "Ring til ..." af, når bookingen er gemt
+        if (item) BA.store.updateItem(item.id, data, opened); else BA.store.addItem(car, 'booking', data);
         close();
         BA.toast(item ? 'Bookingen er rettet.' : 'Bookingen er oprettet.');
       };
@@ -176,7 +246,7 @@
   // ---------------------------------------------------------------------------
   var HIDE_TG = 'ba.todo.tghide';
   /** Hvilken knap har tastaturfokus? Så fokus kan flyttes tilbage, når listen tegnes om (hvert minut og ved hver ændring). */
-  var FOCUS_ATTRS = ['data-todo-act', 'data-todo-edit', 'data-bk-edit', 'data-bk-new', 'data-todo-new', 'data-hide-tg'];
+  var FOCUS_ATTRS = ['data-todo-act', 'data-todo-book', 'data-todo-edit', 'data-bk-edit', 'data-bk-new', 'data-todo-new', 'data-hide-tg'];
   function focusSig(container) {
     var a = document.activeElement;
     if (!a || a === document.body || !container.contains(a)) return null;
@@ -189,7 +259,24 @@
     if (el) { try { el.focus(); } catch (e) { /* ingen */ } }
   }
 
+  /** Virker kalender og To Do? Telegram er valgfrit, så det her skal ses, uanset om det er sat op. */
+  function syncNote() {
+    var r = BA.S.reminders, s = BA.S.sync || {}, out = '';
+    var uses = (s.cal && s.cal.on) || (s.ms && s.ms.on);
+    // Kun når appen selv har forbindelse: ellers er tidspunktet bare gammelt, fordi telefonen er uden net
+    if (uses && r && !r.configured && BA.S.online !== false && (!r.at || Date.now() - r.at > 20 * 60000)) out += '<div class="banner bad">Den automatiske kørsel er stoppet' + (r.at ? ' (sidst ' + esc(U.fmtTime(r.at)) + ')' : '') + '. To Do og kalenderen bliver ikke opdateret.</div>';
+    if (s.cal && s.cal.on && s.cal.allDay) out += '<div class="banner warn">Heldagsaftale i Google Kalender: ' + esc((s.cal.allDayList || []).join('; ') || (s.cal.allDay + ' aftaler')) + (s.cal.allDayList && s.cal.allDay > s.cal.allDayList.length ? ' og ' + (s.cal.allDay - s.cal.allDayList.length) + ' mere' : '') + '. Bilarkiv beholder klokkeslættet, og påmindelserne kan komme aftenen før.</div>';
+    if (s.cal && s.cal.on && !s.cal.ok) out += '<div class="banner bad">Google Kalender har en fejl (' + esc(U.fmtTime(s.cal.at)) + '): ' + esc(s.cal.error || 'ukendt fejl') + '. Tjek aftalerne her i appen.</div>';
+    if (s.cal && s.cal.on && s.cal.unknown) out += '<div class="banner warn">' + s.cal.unknown + (s.cal.unknown === 1 ? ' aftale' : ' aftaler') + ' i Google Kalender findes ikke i Bilarkiv. De er ikke slettet.</div>';
+    if (s.ms && s.ms.on && !s.ms.ok && s.ms.fails >= 3) out += '<div class="banner bad">Microsoft To Do har en fejl: ' + esc(s.ms.error || 'ukendt fejl') + '</div>';
+    return out;
+  }
+
   function remindersNote() {
+    return syncNote() + telegramNote();
+  }
+
+  function telegramNote() {
     var r = BA.S.reminders;
     if (!r || !r.configured) {
       // Telegram er valgfrit: beskeden kan lukkes, og det huskes på denne enhed
@@ -205,13 +292,12 @@
   function bookingsHtml(ctx) {
     var list = T.bookings(ctx, 14), today = ctx.local(ctx.now).slice(0, 10);
     var h = '<div class="card"><div class="hd"><h2>Kalender</h2><div class="row"><button type="button" class="btn small primary" data-bk-new>+ Book</button></div></div>';
-    if (!list.length) return h + '<p class="muted small" style="margin:0">Ingen bookinger de næste 14 dage. Tryk “+ Book” for at booke en prøvetur eller fremvisning. Du får en påmindelse 2 timer og 1 time før.</p></div>';
+    if (!list.length) return h + '<p class="muted small" style="margin:0">Ingen bookinger de næste 14 dage. Tryk “+ Book” for at booke en prøvetur eller fremvisning. Dagen før kl. ' + T.PREP_HOUR + ' kommer der et klar-tjek på listen, hvis der mangler noget på bilen.</p></div>';
     var day = '';
     list.forEach(function (x) {
       var l = ctx.local(x.booking.start), d = l.slice(0, 10);
       if (d !== day) { day = d; h += '<div class="eyebrow" style="margin:10px 0 2px">' + esc(dayHead(d, today)) + '</div>'; }
-      h += '<div class="li"><div class="main"><div class="t"><b>' + esc(l.slice(11, 16)) + '</b> · ' + esc(x.booking.kind || 'Prøvetur') + ' · <a href="#/bil/' + esc(x.car.id) + '">' + esc(T.carLabel(x.car)) + '</a></div>' +
-        (T.bookingSub(x.booking) ? '<div class="m">' + esc(T.bookingSub(x.booking)) + '</div>' : '') + '</div>' +
+      h += '<div class="li"><div class="main"><div class="t"><b>' + esc(l.slice(11, 16)) + '</b> · ' + esc(x.booking.kind || 'Prøvetur') + ' · <a href="#/bil/' + esc(x.car.id) + '">' + esc(T.carLabel(x.car)) + '</a>' + readyChip(x.booking) + '</div>' + bookingLines(x.booking) + '</div>' +
         '<button type="button" class="icon-btn" data-bk-edit="' + esc(x.booking.id) + '" aria-label="Ret booking">✎</button></div>';
     });
     return h + '</div>';
@@ -312,7 +398,7 @@
     var bks = ctx.items.filter(function (i) { return i.type === 'booking' && i.carId === car.id && !i.cancelled && !i.done && typeof i.start === 'number'; }).sort(function (a, b) { return a.start - b.start; });
     h += '<div class="eyebrow" style="margin:12px 0 2px">Bookinger</div>';
     h += bks.length ? bks.map(function (b) {
-      return '<div class="li"><div class="main"><div class="t">' + esc(b.kind || 'Prøvetur') + ' · ' + esc(U.fmtLocal(b.start)) + '</div>' + (T.bookingSub(b) ? '<div class="m">' + esc(T.bookingSub(b)) + '</div>' : '') + '</div>' +
+      return '<div class="li"><div class="main"><div class="t">' + esc(b.kind || 'Prøvetur') + ' · ' + esc(U.fmtLocal(b.start)) + readyChip(b) + '</div>' + bookingLines(b) + '</div>' +
         '<button type="button" class="icon-btn" data-act="book-edit" data-id="' + esc(b.id) + '" aria-label="Ret booking">✎</button></div>';
     }).join('') : '<p class="muted small" style="margin:0 0 6px">Ingen bookinger.</p>';
     return h + '<button type="button" class="btn small" data-act="book-new" style="margin-top:8px">+ Book prøvetur / fremvisning</button>';

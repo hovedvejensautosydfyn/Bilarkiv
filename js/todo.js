@@ -18,7 +18,9 @@ var TODO_ = (function () {
 
   var ORDER = ['Købt', 'Under transport', 'Ankommet', 'Gennemgået', 'Klargøring', 'Fotograferet', 'Annonceret', 'Solgt', 'Udleveret', 'Reklamation'];
   var HOUR = 3600000, DAY = 86400000, NEVER = 9e15;
-  var DEFAULTS = { priceCheckDays: [30, 45, 60], chargeHours: 48, morningHour: 8 };
+  var DEFAULTS = { priceCheckDays: [30, 45, 60], chargeHours: 48, morningHour: 8, bookingChecks: ['Vask bilen', 'Lad eller tank', 'Find nøglen', 'Prøveskilte (hvis afmeldt)', 'Prisskilt i forruden'] };
+  var PREP_HOUR = 16;              // dagen før en booking: fra kl. 16 kommer klar-tjekket på listen
+  var BOOKING_MINUTES = 60;        // en prøvetur regnes for en time (til kalenderen og til advarslen om overlap)
   var TICK_KINDS = ['charge', 'pricecheck', 'regcert', 'dereg', 'dispute', 'invoice', 'paid', 'inspect', 'pickup'];
   // Salgsforløbet efter salg (Fase 3): ét skridt ad gangen, til bilen er Udleveret. [afkrydsning, hvad skal gøres, knaptekst]
   var SALE_STEPS = [['invoice', 'Send faktura til køber', 'Faktura sendt'], ['paid', 'Vent på betalingen', 'Betalt'], ['inspect', 'Synshal / indregistrering i kundens navn', 'Gjort'], ['pickup', 'Gør bilen klar til afhentning', 'Klar til afhentning']];
@@ -96,7 +98,9 @@ var TODO_ = (function () {
       priceCheckDays: uniq.length ? uniq : DEFAULTS.priceCheckDays.slice(),
       chargeHours: isFinite(ch) && ch >= 1 ? ch : DEFAULTS.chargeHours,
       morningHour: isFinite(mh) && mh >= 0 && mh <= 23 ? mh : DEFAULTS.morningHour,
-      channels: Array.isArray(st.channels) ? st.channels : []
+      channels: Array.isArray(st.channels) ? st.channels : [],
+      // En tom liste er et gyldigt valg (intet klar-tjek); mangler feltet (gamle indstillinger), bruges standarden
+      bookingChecks: Array.isArray(st.bookingChecks) ? st.bookingChecks.map(String).filter(Boolean) : DEFAULTS.bookingChecks.slice()
     };
   }
   /** Kanalens flag. Mangler flaget (gamle indstillinger), udledes det af navnet: AutoProff har tvist-ur, Byttebil og Privat skal afmeldes/omregistreres. */
@@ -198,6 +202,48 @@ var TODO_ = (function () {
     });
     out.sort(function (a, b) { return a.booking.start - b.booking.start || (a.booking.id < b.booking.id ? -1 : 1); });
     return out;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Klar til prøvetur: klar-tjek, overlap og bilens stand
+  // ---------------------------------------------------------------------------
+  /** De punkter på klar-tjekket, der er gjort. Krydsene gælder kun den dag, de blev sat til: flyttes aftalen til en anden dag, skal bilen tjekkes igen. */
+  function readyList(b, local) {
+    if (!b || !b.ready) return [];
+    if (typeof b.start === 'number' && b.readyDay !== local(b.start).slice(0, 10)) return [];
+    return String(b.ready).split('|').filter(Boolean);
+  }
+  /** De punkter, der mangler (efter den aktuelle liste i indstillingerne: et omdøbt punkt tæller som ikke gjort). */
+  function bookingMissing(b, settings, local) {
+    var have = readyList(b, local);
+    return settingsOf(settings).bookingChecks.filter(function (c) { return have.indexOf(c) < 0; });
+  }
+  /** Værdien af feltet ready, når alt er gjort. */
+  function allReady(settings) { return settingsOf(settings).bookingChecks.join('|'); }
+  /** Felterne, der gør hele klar-tjekket færdigt på denne booking. */
+  function readyPatch(b, settings, local) { return { ready: allReady(settings), readyDay: local(b.start).slice(0, 10) }; }
+  /** Andre aktive bookinger, der ligger mindre end en time fra dette tidspunkt. Giver [{ booking, car }]. */
+  function bookingClashes(ctx, start, ignoreId) {
+    var map = byId(ctx.cars), out = [], span = BOOKING_MINUTES * 60000;
+    (ctx.items || []).forEach(function (it) {
+      if (it.type !== 'booking' || it.deleted || it.done || it.cancelled || typeof it.start !== 'number' || it.id === ignoreId) return;
+      if (!map[it.carId] || Math.abs(it.start - start) >= span) return;
+      out.push({ booking: it, car: map[it.carId] });
+    });
+    out.sort(function (a, b) { return a.booking.start - b.booking.start; });
+    return out;
+  }
+  /** Er bilen klar til at blive vist frem? Giver en advarsel som tekst, eller '' hvis bilen står til salg. Blokerer ikke: du kan have en god grund. */
+  function bookingCarWarning(car, ctx) {
+    if (!car) return '';
+    var f = flow(car, ctx), miss = f.reqs.filter(function (r) { return !r.ok; }).map(function (r) { return r.short; });
+    var tail = miss.length ? ' Mangler: ' + miss.slice(0, 4).join(', ') + (miss.length > 4 ? ' m.fl.' : '') + '.' : '';
+    if (f.stage === 'Købt') return isTrade(car.channel) ? 'Byttebilen er ikke overtaget endnu.' : 'Bilen er ikke kommet hjem endnu.';
+    if (f.stage === 'Ankommet') return 'Bilen er ikke gennemgået endnu.' + tail;
+    if (f.stage === 'Klargøring') return 'Bilen er ikke klargjort endnu.' + tail;
+    if (f.stage === 'Solgt' || f.stage === 'Udleveret') return 'Bilen er allerede solgt.';
+    if (f.stage === 'Reklamation') return 'Bilen står som reklamation.';
+    return '';
   }
 
   // ---------------------------------------------------------------------------
@@ -470,6 +516,10 @@ var TODO_ = (function () {
         sub: 'Skiltet i bilen siger ' + fmtKr(sg.price) + ' – prisen er nu ' + fmtKr(nowPrice), at: typeof sg.at === 'number' ? sg.at : NEVER, label: '', action: null });
     });
 
+    // Ønsker fra h-auto.dk, der allerede har fået en tid (også mens bookingen stadig er på vej til serveren; afvises den, kommer linjen igen)
+    var bookedLeads = {};
+    items.forEach(function (it) { if (it.type === 'booking' && !it.deleted && !it.cancelled && it.leadId) bookedLeads[it.leadId] = true; });
+
     // 6. Bookinger: i dag, og forfaldne
     items.forEach(function (it) {
       if (it.type !== 'booking' || it.deleted || it.done || it.cancelled || typeof it.start !== 'number') return;
@@ -481,11 +531,26 @@ var TODO_ = (function () {
         add({ key: 'booking:' + it.id, kind: 'booking', prio: 1, carId: car.id, text: bookingText(it, car, local, false), sub: bookingSub(it),
           at: it.start, label: 'Afholdt', id: it.id, start: it.start, action: { kind: 'booking', id: it.id } });
       }
+      // 6b. Klar-tjek: dagen før fra kl. 16 ("I dag"), og på selve dagen som "Haster", så længe der mangler noget. Det, der mangler, står i titlen,
+      //     så opgaven i Microsoft To Do også rettes, når du krydser et punkt af.
+      if (it.start <= now) return;
+      // Bilen er solgt, men prøveturen står stadig: kunden kan møde op til en bil, der ikke er der
+      if (!notSold(car)) {
+        add({ key: 'sold:' + it.id, kind: 'sold', prio: 0, carId: car.id, text: 'Bilen er solgt – ring og aflys: ' + bookingText(it, car, local, true), sub: bookingSub(it),
+          at: it.start, label: 'Aflyst', id: it.id, action: { kind: 'bookingcancel', id: it.id, start: it.start } });
+        return;
+      }
+      var miss = bookingMissing(it, ctx.settings, local);
+      if (!miss.length) return;
+      var bDay = local(it.start).slice(0, 10), isToday = bDay === today;
+      if (!isToday && !(bDay === addDaysIso(today, 1) && Number(local(now).slice(11, 13)) >= PREP_HOUR)) return;
+      add({ key: 'prep:' + it.id, kind: 'prep', prio: isToday ? 0 : 1, carId: car.id, text: (isToday ? 'Gør klar: ' : 'I morgen: ') + bookingText(it, car, local, false) + '. Mangler: ' + miss.join(', '),
+        sub: bookingSub(it), at: it.start, label: 'Klar', id: it.id, remind: isToday ? 'today' : 'tomorrow', action: { kind: 'bookingready', id: it.id, start: it.start } });
     });
 
     // 7. Egne opgaver
     items.forEach(function (it) {
-      if (it.type !== 'todo' || it.deleted || it.done) return;
+      if (it.type !== 'todo' || it.deleted || it.done || ((it.who || it.phone) && bookedLeads[it.id])) return;
       var car = it.carId ? map[it.carId] : null;
       if (it.carId && !car) return;
       var due = it.due || '';
@@ -493,7 +558,7 @@ var TODO_ = (function () {
       var sub = due ? (due < today ? 'Forfaldt ' + fmtIso(due) : (due === today ? 'I dag' : 'Frist ' + fmtIso(due))) : '';
       if (car) sub = (sub ? sub + ' · ' : '') + 'Bil: ' + carLabel(car);
       if (it.note) sub = (sub ? sub + ' · ' : '') + it.note;
-      add({ key: 'todo:' + it.id, kind: 'todo', prio: prio, carId: it.carId || '', text: it.text, sub: sub, at: due ? dayNum(due) * DAY : NEVER, label: 'Udført', id: it.id, action: { kind: 'todo', id: it.id } });
+      add({ key: 'todo:' + it.id, kind: 'todo', prio: prio, carId: it.carId || '', text: it.text, sub: sub, at: due ? dayNum(due) * DAY : NEVER, label: 'Udført', id: it.id, lead: !!(it.who || it.phone), action: { kind: 'todo', id: it.id } });
     });
 
     out.sort(function (a, b) { return a.prio - b.prio || a.at - b.at || (a.text < b.text ? -1 : a.text > b.text ? 1 : (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)); });
@@ -508,6 +573,7 @@ var TODO_ = (function () {
     compute: compute, count: count, chargeInfo: chargeInfo, bookings: bookings, lastTick: lastTick, settingsOf: settingsOf, channelFlag: channelFlag,
     carLabel: carLabel, fmtLeft: fmtLeft, fmtAgo: fmtAgo, fmtIso: fmtIso, dayNum: dayNum, addDaysIso: addDaysIso, bookingText: bookingText, bookingSub: bookingSub,
     onStock: onStock, arrivedAt: arrivedAt, channelTransit: channelTransit,
+    PREP_HOUR: PREP_HOUR, BOOKING_MINUTES: BOOKING_MINUTES, readyList: readyList, bookingMissing: bookingMissing, allReady: allReady, readyPatch: readyPatch, bookingClashes: bookingClashes, bookingCarWarning: bookingCarWarning,
     AD_CHANNELS: AD_CHANNELS, adOn: adOn, statusBeforeSale: statusBeforeSale, STAGE_LABELS: STAGE_LABELS, STAGE_PATH: STAGE_PATH, MIN_PHOTOS: MIN_PHOTOS, stageOf: stageOf, stageLabel: stageLabel, flow: flow, kravItem: kravItem, regcertDone: regcertDone, photoCount: photoCount
   };
 })();

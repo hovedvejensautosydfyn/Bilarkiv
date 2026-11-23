@@ -17,7 +17,7 @@
   var LS = { key: 'ba.key', server: 'ba.server', person: 'ba.person', cacheOld: 'ba.cache.v1', queue: 'ba.queue.v1', failed: 'ba.failed.v1', qperson: 'ba.queue.person' };
   var TIMEOUT_MS = 45000, UPLOAD_TIMEOUT_MS = 180000;
   /** Laveste serverversion, appen kan arbejde sammen med (Code.gs: SERVER_VERSION). */
-  var NEEDS_SERVER = 7;
+  var NEEDS_SERVER = 8;
   var FULL_EVERY_MS = 10 * 60 * 1000, OVERLAP_MS = 60000, MAX_SERVER_FAILS = 8;
 
   // ---------------------------------------------------------------------------
@@ -134,9 +134,9 @@
   // ---------------------------------------------------------------------------
   // Data
   // ---------------------------------------------------------------------------
-  var DEFAULT_SETTINGS = { vat: 0.2, hourGoal: 500, monthGoal: 60000, stockDays: 60, minProfit: 20000, sellerName: '', channels: [], salesChannels: [], priceCheckDays: [30, 45, 60], chargeHours: 48, morningHour: 8 };
+  var DEFAULT_SETTINGS = { vat: 0.2, hourGoal: 500, monthGoal: 60000, stockDays: 60, minProfit: 20000, sellerName: '', channels: [], salesChannels: [], priceCheckDays: [30, 45, 60], chargeHours: 48, morningHour: 8, bookingChecks: ['Vask bilen', 'Lad eller tank', 'Find nøglen', 'Prøveskilte (hvis afmeldt)', 'Prisskilt i forruden'] };
   var S = BA.S = { ready: false, cars: [], items: [], settings: DEFAULT_SETTINGS, device: null, online: true, lastSync: 0, error: '', pending: 0, savedAt: 0, loaded: false,
-    serverVersion: 0, serverOld: false, versionOk: false, storageWarn: false, failedCount: 0, backup: null, reminders: null };
+    serverVersion: 0, serverOld: false, versionOk: false, storageWarn: false, failedCount: 0, backup: null, reminders: null, sync: null };
   var base = { cars: [], items: [], settings: null };
   var Q = [];          // ændringer, der venter på at blive sendt
   var Fl = [];         // ændringer, der ikke kunne gemmes (venter på, at brugeren retter, sender igen eller sletter dem)
@@ -374,14 +374,14 @@
       if (res.unchanged) {
         // Intet nyt: ingen data at tegne om.
         stamp = { time: res.serverTime, rev: res.rev, gen: res.gen };
-        S.lastSync = Date.now(); S.online = true; S.ready = true; S.backup = res.backup || S.backup; S.reminders = res.reminders || S.reminders;
+        S.lastSync = Date.now(); S.online = true; S.ready = true; S.backup = res.backup || S.backup; S.reminders = res.reminders || S.reminders; S.sync = res.sync || S.sync;
         if (res.device) S.device = res.device;
         saveCacheSoon(); BA.emit('status');
       } else {
         if (res.delta) mergeDelta(res);
         else { base = { cars: res.cars || [], items: res.items || [], settings: res.settings || DEFAULT_SETTINGS }; lastFull = Date.now(); }
         stamp = typeof res.rev === 'number' && res.serverTime > 0 ? { time: res.serverTime, rev: res.rev, gen: res.gen } : { time: 0, rev: -1 };   // en gammel server har ingen tæller: altid fuld hentning
-        S.device = res.device || S.device; S.lastSync = Date.now(); S.loaded = true; S.ready = true; S.online = true; S.backup = res.backup || null; S.reminders = res.reminders || null;
+        S.device = res.device || S.device; S.lastSync = Date.now(); S.loaded = true; S.ready = true; S.online = true; S.backup = res.backup || null; S.reminders = res.reminders || null; S.sync = res.sync || null;
         if (res.statuses && res.statuses.length) BA.STATUSES = res.statuses;
         if (S.device && S.device.person) U.safeStore.set(LS.person, S.device.person);
         commit();
@@ -490,7 +490,7 @@
     fixed: 'Afhjulpet', accepted: 'Accepteret', phase: 'Skal laves', who: 'Hvem', kind: 'Type', fix: 'Løsning', ctype: 'Fejltype', hourGoal: 'Mål: kr. pr. time', monthGoal: 'Mål pr. måned', stockDays: 'Advar efter dage', minProfit: 'Advar under (kr)',
     vat: 'Brugtmoms', sellerName: 'Sælgerens navn', channels: 'Indkøbskanaler', salesChannels: 'Salgskanaler', source: 'Kilde',
     start: 'Tidspunkt', at: 'Tidspunkt', doneAt: 'Udført', due: 'Frist', phone: 'Telefon', cancelled: 'Aflyst',
-    priceCheckDays: 'Pris-tjek efter dage', chargeHours: 'Lader flyttes hver (timer)', morningHour: 'Morgenbesked kl.',
+    priceCheckDays: 'Pris-tjek efter dage', chargeHours: 'Lader flyttes hver (timer)', morningHour: 'Morgenbesked kl.', ready: 'Klar-tjek', readyDay: 'Klar-tjek gælder for', leadId: 'Ønske fra h-auto.dk', bookingChecks: 'Klar-tjek før prøvetur',
     list: 'Tjekliste', key: 'Punkt', state: 'Svar' };
   BA.store.fieldLabel = function (k) { return LABELS[k] || k; };
   var TYPE_NAMES = { udstyr: 'udstyr', fejl: 'fejl', opgave: 'opgave', udgift: 'udgift', time: 'timer', reklamation: 'reklamation', abonnement: 'fast udgift', enkeltudgift: 'enkeltudgift',
@@ -728,11 +728,16 @@
     enqueue('addItem', { id: item.id, carId: carId, type: type, data: send }, { k: 'item+', item: item });
     return item.id;
   };
-  BA.store.updateItem = function (id, fields) {
+  /**
+   * base (valgfri): værdierne, da en dialog blev åbnet. Så sendes kun det, brugeren selv har ændret, med de gamle værdier som "from".
+   * En ændring, der er kommet ind imens (fx en aftale flyttet i Google), bliver så ikke stille overskrevet af en dialog, der stod åben.
+   */
+  BA.store.updateItem = function (id, fields, base) {
     var it = maps.item[id]; if (!it) return false;
-    var from = {}, changed = {}, any = false;
+    var from = {}, changed = {}, any = false, same = function (a, b) { return JSON.stringify(a == null ? '' : a) === JSON.stringify(b == null ? '' : b); };
     Object.keys(fields).forEach(function (k) {
-      if (JSON.stringify(it[k] == null ? '' : it[k]) !== JSON.stringify(fields[k] == null ? '' : fields[k])) { from[k] = it[k] === undefined ? null : it[k]; changed[k] = fields[k]; any = true; }
+      if (base && same(base[k], fields[k])) return;
+      if (!same(it[k], fields[k])) { var was = base ? base[k] : it[k]; from[k] = was === undefined ? null : was; changed[k] = fields[k]; any = true; }
     });
     if (!any) return false;
     enqueue('updateItem', { id: id, fields: changed, from: from }, { k: 'itemset', id: id, fields: changed });

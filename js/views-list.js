@@ -438,6 +438,7 @@
       '<div class="grid2"><div class="field"><label for="s-priceCheckDays">Tjek prisen efter (dage, med komma imellem)</label><input id="s-priceCheckDays" data-s="priceCheckDays" inputmode="numeric" value="' + esc((st.priceCheckDays || [30, 45, 60]).join(', ')) + '"></div>' +
       '<div class="field"><label for="s-chargeHours">Flyt laderen hver (timer)</label><input id="s-chargeHours" data-s="chargeHours" inputmode="numeric" value="' + esc(st.chargeHours || 48) + '"></div></div>' +
       '<div class="grid2"><div class="field"><label for="s-morningHour">Morgenbesked på Telegram kl.</label><input id="s-morningHour" data-s="morningHour" inputmode="numeric" value="' + esc(st.morningHour == null ? 8 : st.morningHour) + '"></div></div>' +
+      '<div class="field"><label for="s-bookingChecks">Klar-tjek før en prøvetur (ét punkt pr. linje, højst 8)</label><textarea id="s-bookingChecks" data-s="bookingChecks" rows="5">' + esc(BA.todo.settingsOf(st).bookingChecks.join('\n')) + '</textarea></div>' +
       '<div class="errtxt" role="alert"></div><p class="small muted" id="m-remind" style="margin:0">' + reminderLine() + '</p></div>' +
       '<div class="card"><div class="hd"><h2>Salgskanaler</h2></div><div class="field"><label for="s-sales">Én pr. linje (vises, når du markerer en bil som solgt)</label><textarea id="s-sales" rows="6">' + esc(draft.sales) + '</textarea></div>' +
       '<button class="btn" id="s-savesales" type="button">Gem salgskanaler</button></div>' +
@@ -551,7 +552,13 @@
         var k = el.getAttribute('data-s'), err = el.closest('.card').querySelector('.errtxt'); err.textContent = '';
         var val;
         if (k === 'sellerName') val = el.value.trim();
-        else if (k === 'priceCheckDays') {
+        else if (k === 'bookingChecks') {
+          var lines = el.value.split('\n').map(function (s) { return s.trim().replace(/\s+/g, ' '); }).filter(Boolean);
+          lines = lines.filter(function (s, i) { return lines.map(function (x) { return x.toLowerCase(); }).indexOf(s.toLowerCase()) === i; });
+          if (lines.length > 8 || lines.some(function (s) { return s.length > 50 || s.indexOf('|') >= 0; })) { el.classList.add('invalid'); err.textContent = 'Højst 8 punkter på højst 50 tegn, uden tegnet |.'; return; }
+          el.classList.remove('invalid');
+          val = lines;
+        } else if (k === 'priceCheckDays') {
           var nums = el.value.split(/[,;\s]+/).filter(Boolean).map(U.pnum);
           if (!nums.length || nums.length > 10 || nums.some(function (n) { return n === null || Math.floor(n) !== n || n < 1 || n > 3650; })) { el.classList.add('invalid'); err.textContent = 'Skriv hele dage med komma imellem, fx 30, 45, 60.'; return; }
           el.classList.remove('invalid');
