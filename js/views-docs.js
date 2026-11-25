@@ -127,7 +127,44 @@
     return true;
   }
 
+  /** En app lagt på iPhonens hjemmeskærm kan ikke starte udskrift (window.print gør ingenting dér). Der går udskrift via en PDF og Del-arket. */
+  function iosApp() { try { return window.navigator.standalone === true; } catch (e) { return false; } }
+
+  /**
+   * PDF'en laves af serveren (gennem køen) og lægges under Papirer. Når den er klar, vises en Udskriv-knap, der åbner Del-arket (Udskriv / Gem i Filer).
+   * Filen hentes FØR knappen kan trykkes, fordi iPhone kun åbner Del-arket direkte ud fra et tryk (ikke efter ventetid).
+   */
+  function pdfReadyDialog(car, id, label) {
+    var html = '<p class="muted" id="pr-msg" style="margin:0 0 12px">PDF’en laves … det tager et øjeblik.</p>' +
+      '<div class="actions"><button type="button" class="btn" data-close>Luk</button><button type="button" class="btn primary" id="pr-go" disabled>🖨️ Udskriv</button></div>' +
+      '<p class="muted small" style="margin:10px 0 0">Vælg Udskriv i arket, der kommer frem. PDF’en ligger også under Papirer på bilen.</p>';
+    BA.modal(label + ' – udskrift', html, function (box, close) {
+      var msg = $('#pr-msg', box), go = $('#pr-go', box), blobFile = null, fetching = false, timer = 0;
+      function findItem() { return itemsOf(car, 'fil').filter(function (i) { return i.id === id; })[0] || null; }
+      function sync() {
+        if (!box.isConnected) { clearInterval(timer); return; }
+        if (blobFile) return;
+        var it = findItem();
+        if (it) {
+          if (fetching) return;
+          fetching = true; msg.textContent = 'PDF’en er lavet – henter den …';
+          BA.img.file(it.id).then(function (f) { blobFile = f; msg.textContent = 'PDF’en er klar ✓ Tryk Udskriv.'; go.disabled = false; clearInterval(timer); },
+            function (er) { fetching = false; msg.textContent = 'Kunne ikke hente PDF’en: ' + (er && er.message ? er.message : 'prøv igen') + ' Åbn den under Papirer i stedet.'; });
+          return;
+        }
+        var failed = (BA.store.pendingDocs ? BA.store.pendingDocs(car.id) : []).some(function (p) { return p.id === id && p.state === 'failed'; });
+        if (failed) { msg.textContent = 'PDF’en kunne ikke laves lige nu (se Mere → Kunne ikke gemmes). Prøv igen om lidt.'; clearInterval(timer); }
+      }
+      BA.on('data', function () { sync(); });
+      timer = setInterval(sync, 2000);
+      go.onclick = function () { if (blobFile) BA.showPdf(blobFile.blob, blobFile.name, true); };
+      $('[data-close]', box).onclick = function () { clearInterval(timer); close(); };
+      sync();
+    }, { noFocus: true });
+  }
+
   BA.docsPrint = function (html) {
+    if (iosApp()) { BA.toast('iPhone kan ikke udskrive direkte herfra. Tryk Gem – så ligger PDF’en under Papirer, og du kan udskrive den derfra.', { long: true }); return false; }
     if (touchDevice() && printInPage(html)) return true;
     var win = null;
     try { win = window.open('', '_blank'); } catch (e) { win = null; }
@@ -227,19 +264,22 @@
       window.addEventListener('resize', onResize);
       function onResize() { if (!box.isConnected) { window.removeEventListener('resize', onResize); return; } scalePreview(box); }
       $('[data-close]', box).onclick = function () { saveDraft(); close(); };
-      $('[data-print]', box).onclick = function () { readAll(); BA.docsPrint(D().html(kind, vals)); };
-      $('[data-save]', box).onclick = function () {
+      // Gem som PDF på bilen. printAfter (iPhone-app): vis bagefter et vindue med en Udskriv-knap, når PDF'en er klar.
+      function savePdf(printAfter) {
         readAll();
         var c = D().clean(kind, vals), err = $('#dv-err', box);
         if (c.error) { err.textContent = c.error; return; }
         err.textContent = '';
         var modeEl = $('#dv-mode', box), replaceId = prev && modeEl && modeEl.value === 'replace' ? prev.fil.id : '';
-        BA.store.makeDocument(car.id, kind, c.vals, replaceId);
+        var newId = BA.store.makeDocument(car.id, kind, c.vals, replaceId);
         finished = true; clearTimeout(tm); clearTimeout(saveTm);   // en ventende kladde-gem må ikke komme efter oprydningen
         U.safeStore.del(key);
         close();
-        BA.toast('PDF’en laves nu. Den ligger under Papirer om et øjeblik.', { long: true });
-      };
+        if (printAfter) pdfReadyDialog(car, newId, spec.label);
+        else BA.toast('PDF’en laves nu. Den ligger under Papirer om et øjeblik.', { long: true });
+      }
+      $('[data-print]', box).onclick = function () { if (iosApp()) { savePdf(true); return; } readAll(); BA.docsPrint(D().html(kind, vals)); };
+      $('[data-save]', box).onclick = function () { savePdf(false); };
       // Lukkes dialogen på nogen måde (også Escape/tryk ved siden af): kladden gemmes, og ventende timere stoppes, så de ikke skriver en gammel kladde bagefter
       closer = function () { saveDraft(); finished = true; clearTimeout(tm); clearTimeout(saveTm); window.removeEventListener('resize', onResize); };
       draw();
