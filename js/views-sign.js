@@ -58,6 +58,7 @@
     }
     return Promise.resolve(openTab(blob, name));
   }
+  BA.showPdf = showPdf;   // bruges også til at åbne/printe en PDF fra Papirer (views-car.js)
   function openTab(blob, name) {
     // En app, der er lagt på iPhonens hjemmeskærm, viser ofte en tom side for en blob-fane: hent filen i stedet
     if (standaloneIos()) { U.download(name, blob); BA.toast('PDF’en er hentet. Åbn den (Filer) og vælg Del → Udskriv.', { long: true }); return true; }

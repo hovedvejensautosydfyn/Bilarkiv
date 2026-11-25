@@ -694,7 +694,7 @@
       case 'photo-open': { var ph = BA.photosOf(car.id); openLightbox(ph, ph.indexOf(ph.filter(function (f) { return f.id === id; })[0]), { carId: car.id }); break; }
       case 'zip': zipAll(car, el); break;
       case 'doc-add': pickFiles('application/pdf,image/*', true, function (files) { BA.up.add(car.id, files, { docKind: 'Andet' }); }); break;
-      case 'doc-open': if (item) { BA.toast('Henter …'); BA.img.file(item.id).then(function (f) { var u = URL.createObjectURL(f.blob); var w = window.open(u, '_blank'); if (!w) U.download(f.name, f.blob); setTimeout(function () { URL.revokeObjectURL(u); }, 60000); }, function (er) { BA.toast(er.message); }); } break;
+      case 'doc-open': if (item) { BA.toast('Henter …'); BA.img.file(item.id).then(function (f) { if (BA.showPdf && /\.pdf$/i.test(f.name || '') && window.matchMedia && window.matchMedia('(pointer: coarse)').matches) { BA.showPdf(f.blob, f.name, true); return; } var u = URL.createObjectURL(f.blob); var w = window.open(u, '_blank'); if (!w) U.download(f.name, f.blob); setTimeout(function () { URL.revokeObjectURL(u); }, 60000); }, function (er) { BA.toast(er.message); }); } break;
       case 'doc-kind': if (item) BA.store.updateItem(item.id, { kind: el.value }); break;
       case 'doc-del': if (item) confirmDelete(item, 'papir'); break;
       case 'up-retry': BA.up.retry(id); break;

@@ -83,7 +83,52 @@
   // ---------------------------------------------------------------------------
   // Udskrift: åbner dokumentet i et nyt vindue og udskriver dér (på iPhone udskriver en iframe ofte hele appsiden)
   // ---------------------------------------------------------------------------
+  // PÅ MOBIL (telefon/installeret app) virker et tomt vindue + document.write ikke: vinduet bliver blokeret, er tomt, eller print() sker i et vindue uden dokument.
+  // Derfor udskrives dokumentet dér direkte fra selve appsiden: det lægges i et skjult "skygge-element" (egne typografier, så appens CSS ikke ændrer det),
+  // og @media print skjuler resten af appen. Skrivebord bruger stadig det nye vindue herunder.
+  function touchDevice() {
+    try { return window.matchMedia('(pointer: coarse)').matches || window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches; } catch (e) { return false; }
+  }
+  var printClean = null;
+  function removePrint() {
+    if (printClean) { try { printClean(); } catch (e) { /* ingen */ } printClean = null; }
+  }
+  function printInPage(html) {
+    var css = (/<style[^>]*>([\s\S]*?)<\/style>/i.exec(html) || [])[1] || '';
+    var body = (/<body[^>]*>([\s\S]*)<\/body>/i.exec(html) || [])[1];
+    if (!body || !document.body.attachShadow) return false;
+    removePrint();
+    var st = document.createElement('style');
+    st.textContent = '@media screen{#ba-print{display:none!important}}@media print{body.ba-printing{background:#fff!important}body.ba-printing>*:not(#ba-print){display:none!important}#ba-print{display:block!important;margin:0;padding:0}}';
+    var host = document.createElement('div');
+    host.id = 'ba-print';
+    var root = host.attachShadow({ mode: 'open' });
+    var inner = document.createElement('style');
+    inner.textContent = css.replace(/(^|\})\s*body\s*\{/g, '$1:host{');   // dokumentets body-regel gælder for skygge-elementet
+    var wrap = document.createElement('div');
+    wrap.innerHTML = body;
+    root.appendChild(inner); root.appendChild(wrap);
+    document.head.appendChild(st);
+    document.body.appendChild(host);
+    document.body.classList.add('ba-printing');
+    var timer = 0;
+    printClean = function () {
+      clearTimeout(timer); window.removeEventListener('afterprint', onAfter);
+      document.body.classList.remove('ba-printing');
+      if (host.parentNode) host.parentNode.removeChild(host);
+      if (st.parentNode) st.parentNode.removeChild(st);
+    };
+    function onAfter() { setTimeout(removePrint, 400); }
+    window.addEventListener('afterprint', onAfter);
+    timer = setTimeout(removePrint, 10 * 60000);   // sikkerhedsnet (iPhone melder ikke altid, at udskriften er færdig)
+    setTimeout(function () {
+      try { window.print(); } catch (e) { removePrint(); BA.toast('Kunne ikke udskrive. Brug “Gem som PDF på bilen” i stedet.', { long: true }); }
+    }, 350);
+    return true;
+  }
+
   BA.docsPrint = function (html) {
+    if (touchDevice() && printInPage(html)) return true;
     var win = null;
     try { win = window.open('', '_blank'); } catch (e) { win = null; }
     if (!win) { BA.toast('Kunne ikke åbne udskrift (pop-up blev stoppet). Tillad pop-ups, eller brug “Gem som PDF på bilen”.', { long: true }); return false; }
