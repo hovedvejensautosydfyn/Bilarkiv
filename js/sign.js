@@ -24,8 +24,13 @@ var SIGN_ = (function () {
   var CODE_LEN = 8;
   var CODE_RE = /^[a-hjkmnp-z2-9]{8}$/;
   var MAX_CODES = 20;           // en bil kan have fået koder fra flere telefoner, før serveren svarede: alle virker
-  var LABELS = { '': '', afhent: 'AFHENTNINGSTILBUD', engros: 'ENGROS' };
-  var LABEL_NAMES = { '': 'Intet', afhent: 'Afhentningstilbud', engros: 'Engros' };
+  var LABELS = { '': '', afhent: 'AFHENTNINGSTILBUD', engros: 'ENGROS', formidling: 'SÆLGES FOR PRIVAT EJER' };
+  var LABEL_NAMES = { '': 'Intet', afhent: 'Afhentningstilbud', engros: 'Engros', formidling: 'Formidlingssalg – sælges for privat ejer' };
+  /** Formidlingsbiler: skiltet siger altid, at bilen sælges for en privat ejer, og lover aldrig garanti (så hæftede du selv). */
+  function forBroker(opts) {
+    var o = opts || {};
+    return { label: 'formidling', badges: (o.badges || []).filter(function (k) { return k !== 'garanti'; }), equipment: o.equipment || [], warranty: '', hk: o.hk || '' };
+  }
   var MAX_BADGES = 6, WARN_BADGES = 4, MAX_EQUIP = 8, DEFAULT_EQUIP = 6;
   var RED = [216, 31, 38], BRIGHT_RED = [255, 59, 66], BLACK = [17, 17, 17], WHITE = [255, 255, 255], GREY = [68, 68, 68];
   var PAGE_W = 297, PAGE_H = 210;   // mm
@@ -646,6 +651,7 @@ var SIGN_ = (function () {
     var so = sign.opts && typeof sign.opts === 'object' ? sign.opts : {};
     var o = cleanOpts({ label: Object.prototype.hasOwnProperty.call(LABELS, so.label) ? so.label : '', badges: (Array.isArray(so.badges) ? so.badges : []).filter(function (k) { return BADGE_KEYS.indexOf(String(k)) >= 0; }).slice(0, MAX_BADGES),
       equipment: [], warranty: clean(so.warranty, 30), hk: /^\d{1,4}$/.test(clean(so.hk)) ? clean(so.hk) : '' }).opts;
+    if (/^formidling$/i.test(String(car.channel || '').trim())) o = forBroker(o);
     var all = badges(car, udstyr, o, today), byKey = {};
     all.forEach(function (b) { byKey[b.key] = b.text; });
     var eq = suggestEquipment(udstyr);
@@ -665,7 +671,7 @@ var SIGN_ = (function () {
   return {
     URL_BASE: URL_BASE, CODE_RE: CODE_RE, CODE_LEN: CODE_LEN, MAX_CODES: MAX_CODES, LABELS: LABELS, LABEL_NAMES: LABEL_NAMES, BADGE_KEYS: BADGE_KEYS, BADGE_NAMES: BADGE_NAMES,
     MAX_BADGES: MAX_BADGES, WARN_BADGES: WARN_BADGES, MAX_EQUIP: MAX_EQUIP, PAGE_W: PAGE_W, PAGE_H: PAGE_H, MIN_PRICE_MM: MIN_PRICE_MM, titleOf: titleOf,
-    newCode: newCode, validCode: validCode, url: url, badges: badges, suggestEquipment: suggestEquipment, defaultEquipment: defaultEquipment, clean: cleanOpts,
+    newCode: newCode, validCode: validCode, url: url, badges: badges, forBroker: forBroker,suggestEquipment: suggestEquipment, defaultEquipment: defaultEquipment, clean: cleanOpts,
     printable: printable, textWidth: textWidth, fit: fit, priceText: priceText, fmtInt: fmtInt,
     qr: qr, gfMul: gfMul, layout: layout, toSvg: toSvg, toPdf: toPdf, publicView: publicView, publicFirm: publicFirm,
     WEB_LIST_URL: WEB_LIST_URL, WEB_MODES: WEB_MODES, WEB_MODE_NAMES: WEB_MODE_NAMES, webUrl: webUrl, parseWebList: parseWebList, matchWeb: matchWeb, cleanWeb: cleanWeb

@@ -6,7 +6,7 @@
   var BA = window.BA, U = BA.u, $ = U.$, esc = U.esc;
 
   var PREV = { 'Ankommet': 'Købt', 'Klargøring': 'Ankommet', 'Annonceret': 'Klargøring', 'Udleveret': 'Solgt' };
-  var ACTION_LABEL = { checklist: 'Åbn listen', goto: 'Vis', photos: '+ Billeder', ad: '✍️ Annoncetekst' };
+  var ACTION_LABEL = { checklist: 'Åbn listen', goto: 'Vis', photos: '+ Billeder', ad: '✍️ Annoncetekst', fm: 'Udfyld', doc: 'Lav aftalen' };
 
   function itemsOf(car, type) { return BA.store.itemsOf(car.id, type); }
   /** Hvad mangler der på bilen lige nu? (også til tests) */
@@ -42,7 +42,7 @@
     var Tm = BA.todo, f = BA.flowOf(car), stage = f.stage, path = Tm.STAGE_PATH;
     var cur = stage === 'Reklamation' ? path.length - 1 : path.indexOf(stage);
     var h = '<div class="steps static" role="list" aria-label="Bilens forløb">' + path.map(function (s, i) {
-      return '<span role="listitem" class="step ' + (i < cur ? 'done' : i === cur ? 'now' : '') + '"' + (i === cur ? ' aria-current="step"' : '') + '>' + esc(Tm.STAGE_LABELS[s]) + '</span>';
+      return '<span role="listitem" class="step ' + (i < cur ? 'done' : i === cur ? 'now' : '') + '"' + (i === cur ? ' aria-current="step"' : '') + '>' + esc(s === 'Købt' && Tm.isBroker(car.channel) ? 'Aftale' : Tm.STAGE_LABELS[s]) + '</span>';
     }).join('') + '</div>';
     if (stage === 'Reklamation' || stage === 'Udleveret') {
       h += '<div class="card flow"><p class="muted" style="margin:0">Bilen er udleveret. Reklamationer og salgsoplysninger står længere nede.</p>' +
@@ -98,6 +98,8 @@
     else if (a.t === 'photos') BA.carHelpers.pickFiles('image/*,video/mp4,video/quicktime', true, function (files) { BA.up.add(car.id, files, {}); });
     else if (a.t === 'ad') { if (BA.docsOpen) BA.docsOpen.ad(car); }
     else if (a.t === 'tick') tick(car, a.tick);
+    else if (a.t === 'fm') { if (BA.brokerEdit) BA.brokerEdit(car); }
+    else if (a.t === 'doc') { if (BA.docsOpen) BA.docsOpen.doc(car, a.kind); }
   }
   function tick(car, kind) {
     if (BA.todo.lastTick(BA.S.items, car.id, kind)) return;
@@ -167,6 +169,11 @@
     lines.push(title + (car.reg ? ' (' + car.reg + ')' : ''));
     var price = U.pnum(car.listPrice);
     row('Pris', price != null && price > 0 ? U.kr(price) : '');
+    if (BA.todo.isBroker(car.channel)) {
+      // Altid det ærlige svar: køber skal vide, hvem der sælger, og at reklamationsretten findes
+      row('Hvem sælger bilen?', 'En privat ejer. Vi formidler salget.');
+      row('Er der reklamationsret?', 'Ja. Køber har reklamationsret efter købeloven over for den private sælger.');
+    }
     row('Bilen', [car.year, car.km != null ? U.fmtN(car.km) + ' km' : '', car.fuel, car.color].filter(Boolean).join(' · '));
     row('1. registrering', dk(car.firstReg));
     row('Syn', car.nextInspection ? 'Næste syn ' + dk(car.nextInspection) : (car.motDate ? 'Seneste syn ' + dk(car.motDate) + (car.motKm != null ? ' ved ' + U.fmtN(car.motKm) + ' km' : '') : ''));
@@ -192,7 +199,8 @@
     var bookings = BA.todo.bookings({ now: Date.now(), cars: [car], items: BA.S.items }, 30).map(function (x) { return x.booking.kind + ' ' + U.fmtLocal(x.booking.start) + (x.booking.who ? ' (' + x.booking.who + ')' : ''); });
     row('Aftalte prøveture', bookings.join('; '), false);
     var r = BA.calc(car, BA.S.items, BA.S.settings);
-    row('Hos os siden', car.boughtDate ? dk(car.boughtDate) + (r.days != null ? ' (' + r.days + (r.days === 1 ? ' dag' : ' dage') + ')' : '') : '', false);
+    if (BA.todo.isBroker(car.channel)) { var fm = BA.todo.brokerData(BA.S.items, car.id); row('Mindstepris (kun til dig)', fm.minPrice != null && fm.minPrice !== '' ? U.kr(fm.minPrice) : '', false); }
+    row('Hos os siden',car.boughtDate ? dk(car.boughtDate) + (r.days != null ? ' (' + r.days + (r.days === 1 ? ' dag' : ' dage') + ')' : '') : '', false);
     row('Til salg i', r.listedDays != null ? r.listedDays + (r.listedDays === 1 ? ' dag' : ' dage') : '', false);
     row('Mine noter', car.notes ? String(car.notes) : '', false);
     return { rows: rows, text: lines.join('\n') };

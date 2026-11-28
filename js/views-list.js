@@ -99,7 +99,8 @@
     var st = BA.S.settings, r = BA.calc(c, BA.S.items, st), cover = BA.coverOf(c);
     var sold = BA.isSold(c.status);
     var kv;
-    if (sold) kv = [['Salgspris', U.kr(U.pnum(c.soldPrice))], ['Avance', '<span class="' + (r.current < 0 ? 'neg' : 'pos') + '">' + U.kr(r.current) + '</span>'],
+    if (r.broker) kv = [['Formidling', 'privat ejer'], [sold ? 'Salgspris' : 'Annonceret', U.kr(U.pnum(sold ? c.soldPrice : c.listPrice))], ['Din fortjeneste', U.kr(sold ? r.current : r.expected)]];
+    else if (sold) kv = [['Salgspris', U.kr(U.pnum(c.soldPrice))], ['Avance', '<span class="' + (r.current < 0 ? 'neg' : 'pos') + '">' + U.kr(r.current) + '</span>'],
       ['Kr. pr. time', r.perHour == null ? '–' : '<span class="' + (r.perHour < st.hourGoal ? 'neg' : 'pos') + '">' + U.kr(r.perHour) + '</span>']];
     else {
       // Advarslen følger avancen FØR brugtmoms (Olivers grænse); avancen efter brugtmoms står under.
@@ -116,7 +117,7 @@
     }
     var claimsN = BA.store.itemsOf(c.id, 'reklamation').length;
     return '<a class="carcard" href="#/bil/' + esc(c.id) + '">' +
-      '<div class="ph">' + (cover ? '<img data-iid="' + esc(cover.id) + '" alt="" data-ph="Intet billede">' : 'Intet billede endnu') + '<span class="st chip ' + BA.statusClass(c.status) + '">' + esc(BA.statusLabel(c.status)) + '</span></div>' +
+      '<div class="ph">' + (cover ? '<img data-iid="' + esc(cover.id) + '" alt="" data-ph="Intet billede">' : 'Intet billede endnu') + '<span class="st chip ' + BA.statusClass(c.status) + '">' + esc(r.broker && c.status === 'Købt' ? 'Aftale' : BA.statusLabel(c.status)) + '</span></div>' +
       '<div class="cb"><div class="row between">' + U.plate(c.reg) + days + (sold && claimsN ? '<span class="chip bad">' + claimsN + ' reklamation' + (claimsN > 1 ? 'er' : '') + '</span>' : '') + '</div>' +
       '<h3>' + esc(c.model || 'Uden navn') + '</h3><div class="sub">' + esc(sub || ' ') + '</div>' + adRow(c) +
       '<dl class="kv">' + kv.map(function (x) { return '<div><dt>' + x[0] + '</dt><dd>' + x[1] + '</dd></div>'; }).join('') + '</dl></div></a>';
@@ -176,7 +177,7 @@
     var list = all.filter(function (c) { return (y === 'alle' || (c.soldDate || '').slice(0, 4) === y) && matches(c); });
     sortCars(list, true);
     var tot = { n: list.length, profit: 0, hrs: 0, rev: 0 };
-    list.forEach(function (c) { var r = BA.calc(c, BA.S.items, st); tot.profit += r.current || 0; tot.hrs += r.hrs || 0; tot.rev += U.pnum(c.soldPrice) || 0; });
+    list.forEach(function (c) { var r = BA.calc(c, BA.S.items, st); tot.profit += r.current || 0; tot.hrs += r.hrs || 0; tot.rev += r.rev || 0; });
     var h = '<h1 class="page">Solgte biler <span class="muted" style="font-size:.6em">' + all.length + '</span></h1>' + offlineBanner() +
       '<div class="toolbar"><input type="search" id="q" placeholder="Søg model, reg.nr., køber …" value="' + esc(ui.q) + '" aria-label="Søg"><select id="yearsel" aria-label="Periode">' +
       BA.options(yearList.map(function (v) { return { value: v, label: v }; }).concat([{ value: 'alle', label: 'Alle år' }]), y) + '</select></div>' +
@@ -289,8 +290,9 @@
         '<div class="grid2">' + inp('firstReg', '1. registrering', 'type="date"') + inp('vin', 'Stelnummer', 'maxlength="20" autocapitalize="characters"') + '</div>' +
         (nw.f.motKm != null ? '<p class="muted small" style="margin:0">Seneste syn' + (nw.f.motDate ? ' (' + esc(U.fmtDate(nw.f.motDate)) + ')' : '') + ': ' + esc(U.fmtN(nw.f.motKm)) + ' km. Det er ikke bilens km-stand nu.</p>' : '') + '</div>' +
         '<div class="card"><div class="hd"><h2>3 · Køb</h2></div>' +
-        '<div class="field"><label for="n-channel">Indkøbskanal *</label><select id="n-channel" data-nf="channel">' + BA.options(st.channels.map(function (c) { return c.name; }), f.channel, 'Vælg …') + '</select>' +
-        (chosen ? '<div class="muted small" style="margin-top:6px">' + (chosen.costs.length ? 'Faste omkostninger lægges i udgifter: ' + chosen.costs.map(function (c) { return esc(c.desc) + ' ' + U.kr(c.amount); }).join(', ') + '.' : 'Ingen faste omkostninger.') + '</div>' : '') + '</div>' +
+        '<div class="field"><label for="n-channel">Indkøbskanal *</label><select id="n-channel" data-nf="channel">' + BA.options(BA.channelNames(st), f.channel, 'Vælg …') + '</select>' +
+        (chosen && BA.todo.isBroker(chosen.name) ? '<div class="banner warn" style="margin-top:6px">Formidling: bilen er ikke din. Der skal ingen købspris på. Ejer, mindstepris og salær udfyldes på bilen bagefter.</div>' :
+        chosen ? '<div class="muted small" style="margin-top:6px">' + (chosen.costs.length ? 'Faste omkostninger lægges i udgifter: ' + chosen.costs.map(function (c) { return esc(c.desc) + ' ' + U.kr(c.amount); }).join(', ') + '.' : 'Ingen faste omkostninger.') + '</div>' : '') + '</div>' +
         '<div class="grid2">' + inp('buyPrice', 'Købspris (kr)', 'inputmode="decimal"') + inp('boughtDate', 'Købsdato', 'type="date"') + '</div>' +
         '<div class="grid2">' + inp('km', 'Km nu', 'inputmode="numeric"') + inp('listPrice', 'Annonceret pris (kr)', 'inputmode="decimal"') + '</div></div>' +
         '<div class="card"><div class="hd"><h2>4 · Udstyr <span class="cnt">' + nw.equip.filter(function (e) { return e.on; }).length + '</span></h2></div>' +
@@ -372,7 +374,7 @@
     if (!f.boughtDate) return bad('Vælg en købsdato.', 'n-boughtDate');
     if (!f.channel) return bad('Vælg indkøbskanal. Den bestemmer de faste omkostninger.', 'n-channel');
     var fields = { reg: reg, model: f.model.trim(), variant: f.variant.trim(), year: (f.year || '').trim(), vin: vin, fuel: f.fuel.trim(), color: f.color.trim(), firstReg: f.firstReg || '',
-      km: km, channel: f.channel, boughtDate: f.boughtDate, buyPrice: buy, listPrice: list, motKm: f.motKm, motDate: f.motDate || '', nextInspection: f.nextInspection || '' };
+      km: km, channel: f.channel, boughtDate: f.boughtDate, buyPrice: BA.todo.isBroker(f.channel) ? null : buy, listPrice: list, motKm: f.motKm, motDate: f.motDate || '', nextInspection: f.nextInspection || '' };
     var equipment = nw.equip.filter(function (e) { return e.on; }).map(function (e) { return { id: e.id, name: e.name, source: e.source }; });
     var id = nw.id;
     if (nw.fromFailed) BA.store.resubmitCar(nw.fromFailed, { id: id, fields: fields, equipment: equipment });

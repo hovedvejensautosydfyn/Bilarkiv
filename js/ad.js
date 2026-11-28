@@ -315,7 +315,9 @@
     var farveLinje = [v('farve'), v('doere') ? v('doere') + ' døre' : ''].filter(Boolean).join(', ');
     if (farveLinje) fakta.push(farveLinje);
     var dele = [overskrift];
-    var vigtigt = lines(f.vigtigt);
+    // Formidling: det skal stå tydeligt og højt oppe, og der må ikke loves garanti
+    if (f.formidling) dele.push('ℹ️ FORMIDLINGSSALG: Bilen sælges for en privat ejer. Hovedvejens Auto Sydfyn formidler salget.');
+    var vigtigt = lines(f.vigtigt).filter(function (x) { return !(f.formidling && /garanti|som beset|engros/i.test(x)); });
     if (vigtigt.length) dele.push(vigtigt.map(function (x) { return '⚠️ ' + x + ' ⚠️'; }).join('\n'));
     if (v('intro')) dele.push(v('intro'));
     if (punkter.length) dele.push(punkter.join('\n'));

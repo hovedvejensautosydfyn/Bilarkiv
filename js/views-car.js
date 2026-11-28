@@ -117,6 +117,7 @@
   }
 
   var SECTIONS = [
+    { id: 's-broker', col: 1, render: brokerSec, hideEmpty: true },
     { id: 's-answers', col: 1, render: function (car) { return BA.answersSection ? BA.answersSection(car) : ''; }, hideEmpty: true },
     { id: 's-econ', col: 1, render: econ },
     { id: 's-sale', col: 1, render: saleSec, only: 'sold' },
@@ -139,17 +140,71 @@
   function itemsOf(car, type) { return BA.store.itemsOf(car.id, type); }
   function byCreated(a, b) { return (a.createdAt || 0) - (b.createdAt || 0); }
 
+  // ----- formidling: ejeren og aftalen -----
+  function brokerSec(car) {
+    if (!BA.todo.isBroker(car.channel)) return '';
+    var d = BA.todo.brokerData(BA.S.items, car.id);
+    var line = function (l, v) { return '<div class="ansrow"><dt>' + esc(l) + '</dt><dd>' + esc(v || '–') + '</dd></div>'; };
+    var money = function (v) { return v === null || v === undefined || v === '' ? '' : U.kr(v); };
+    return secHead('Formidling', null, '<button type="button" class="btn small primary" data-act="fm-edit">' + (d.ownerName ? 'Ret' : 'Udfyld') + '</button>') +
+      '<dl class="ans">' + line('Ejer (sælger)', [d.ownerName, d.ownerAddress, d.ownerCity].filter(Boolean).join(', ')) + line('Tlf. / mail', [d.ownerPhone, d.ownerEmail].filter(Boolean).join(' · ')) +
+      line('Mindstepris', money(d.minPrice)) + line('Salær inkl. moms', money(d.fee)) + line('Gæld i bilen', money(d.debt)) + line('Aftalen gælder til', d.until ? U.fmtDate(d.until) : '') + '</dl>' +
+      '<div class="banner warn" style="margin-top:8px">Sig til ejeren, før der skrives under: “Det er et forbrugerkøb. Du hæfter for fejl over for køber, normalt i 2 år, og det kan ikke skrives væk.”</div>';
+  }
+  BA.brokerEdit = function (car) {
+    var d = BA.todo.brokerData(BA.S.items, car.id);
+    var field = function (k, label, extra) {
+      var v = d[k] === null || d[k] === undefined ? '' : (k === 'minPrice' || k === 'fee' || k === 'debt' ? U.num(d[k]) : d[k]);
+      return '<div class="field"><label for="fm-' + k + '">' + label + '</label><input id="fm-' + k + '" value="' + esc(v) + '" ' + (extra || 'maxlength="100"') + ' autocomplete="off"></div>';
+    };
+    var html = '<form novalidate>' + field('ownerName', 'Ejerens navn *') + field('ownerAddress', 'Adresse *') + field('ownerCity', 'Postnr./by *') +
+      '<div class="grid2">' + field('ownerPhone', 'Tlf. *', 'inputmode="tel" maxlength="20"') + field('ownerEmail', 'E-mail') + '</div>' +
+      '<div class="grid2">' + field('minPrice', 'Mindstepris (kr) *', 'inputmode="decimal"') + field('fee', 'Dit salær inkl. moms (0 hvis gratis) *', 'inputmode="decimal"') + '</div>' +
+      '<div class="grid2">' + field('debt', 'Gæld i bilen (0 hvis ingen) *', 'inputmode="decimal"') + field('until', 'Aftalen gælder til', 'type="date"') + '</div>' +
+      '<div class="errtxt" id="fm-err"></div><div class="actions"><button type="button" class="btn" data-cancel>Annullér</button><button type="submit" class="btn primary">Gem</button></div></form>';
+    BA.modal('Ejer og aftale', html, function (box, close) {
+      $('[data-cancel]', box).onclick = function () { close(); };
+      $('form', box).onsubmit = function (e) {
+        e.preventDefault();
+        var val = function (k) { return $('#fm-' + k, box).value.trim().replace(/\s+/g, ' '); }, err = $('#fm-err', box), data = {};
+        ['ownerName', 'ownerAddress', 'ownerCity', 'ownerPhone', 'ownerEmail', 'until'].forEach(function (k) { data[k] = val(k); });
+        if (data.ownerPhone && !/^[0-9+() \-]{3,20}$/.test(data.ownerPhone)) { err.textContent = 'Telefonnummeret ser forkert ud.'; return; }
+        var bad = ['minPrice', 'fee', 'debt'].filter(function (k) {
+          var t = val(k), n = t === '' ? null : U.pnum(t);
+          data[k] = n === null ? null : Math.round(n);
+          return t !== '' && (n === null || n < 0);
+        });
+        if (bad.length) { err.textContent = 'Beløbene skal være tal.'; return; }
+        var changedPrice = (d.minPrice || null) !== data.minPrice;
+        BA.store.saveBroker(car.id, data);
+        // Ændres mindsteprisen, gælder et tidligere ja til en lavere pris ikke længere
+        if (changedPrice && BA.S.items.some(function (i) { return i.carId === car.id && i.type === 'tjek' && i.key === 'fm_underpris' && i.state === 'ok'; })) BA.store.setTjek(car.id, 'krav', 'fm_underpris', '', '');
+        close();
+        BA.toast('Gemt.');
+      };
+    });
+  };
+
   // ----- økonomi -----
   function econ(car) {
     var st = BA.S.settings, r = BA.calc(car, BA.S.items, st);
     var cell = function (l, v, cls) { return '<div><div class="l">' + l + '</div><div class="v ' + (cls || '') + '">' + v + '</div></div>'; };
     var h = secHead('Økonomi');
     var cells = [];
-    cells.push(cell('Købspris', U.kr(r.buy)));
-    cells.push(cell('Udgifter', U.kr(r.exp)));
-    cells.push(cell('Kostpris', U.kr(r.cost)));
+    if (r.broker) {
+      cells.push(cell('Salær inkl. moms', U.kr(r.fee)));
+      cells.push(cell('Dine udgifter', U.kr(r.exp)));
+    } else {
+      cells.push(cell('Købspris', U.kr(r.buy)));
+      cells.push(cell('Udgifter', U.kr(r.exp)));
+      cells.push(cell('Kostpris', U.kr(r.cost)));
+    }
     if (!r.sold && r.extra) cells.push(cell('Forventet ekstra (åbne opgaver)', U.kr(r.extra)));
-    if (r.sold) {
+    if (r.broker) {
+      cells.push(cell(r.sold ? 'Salgspris (ejerens penge)' : 'Annonceret', U.kr(U.pnum(r.sold ? car.soldPrice : car.listPrice))));
+      cells.push(cell('Moms af salæret', U.kr(r.sold ? r.vat : r.expVat)));
+      cells.push(cell(r.sold ? 'Din fortjeneste' : 'Forventet fortjeneste', U.kr(r.sold ? r.current : r.expected), (r.sold ? r.current : r.expected) < 0 ? 'neg' : 'pos'));
+    } else if (r.sold) {
       cells.push(cell('Salgspris', U.kr(U.pnum(car.soldPrice))));
       cells.push(cell('Brugtmoms', U.kr(r.vat)));
       cells.push(cell('Aktuel avance', U.kr(r.current), r.current < 0 ? 'neg' : 'pos'));
@@ -191,8 +246,10 @@
   // ----- bildata -----
   function dataSec(car) {
     var st = BA.S.settings;
-    var chans = (st.channels || []).map(function (c) { return c.name; });
+    var chans = BA.channelNames(st);
     if (car.channel && chans.indexOf(car.channel) < 0) chans.push(car.channel);
+    // Egen bil eller formidling vælges i starten; senere kan der ikke skiftes (serveren afviser det også)
+    if (BA.stage(car.status) !== 'Købt') chans = chans.filter(function (n) { return BA.todo.isBroker(n) === BA.todo.isBroker(car.channel); });
     return secHead('Bildata') +
       '<div class="grid2">' + inp(car, 'reg', 'Nummerplade', 'reg', 'maxlength="12" autocapitalize="characters"') + inp(car, 'year', 'Årgang', 'year', 'inputmode="numeric" maxlength="4"') + '</div>' +
       inp(car, 'model', 'Mærke og model', 'model', 'maxlength="100"') + inp(car, 'variant', 'Variant', 'text', 'maxlength="100"') +
@@ -357,7 +414,7 @@
   function headHtml(car) {
     var sub = [car.variant, car.year, car.km != null ? U.fmtN(car.km) + ' km' : null, car.fuel, car.color].filter(Boolean).join(' · ');
     return '<div class="carhead"><div>' + U.plate(car.reg, true) + '<h1>' + esc(car.model || 'Uden navn') + '</h1><div class="muted">' + esc(sub) + '</div></div>' +
-      '<div class="row"><span class="chip big ' + BA.statusClass(car.status) + '">' + esc(BA.statusLabel(car.status)) + '</span>' + adMenuHtml(car) + '<button class="btn" type="button" data-act="adcopy">Kopiér til AutoDesktop</button></div></div>';
+      '<div class="row"><span class="chip big ' + BA.statusClass(car.status) + '">' + esc(BA.todo.isBroker(car.channel) && car.status === 'Købt' ? 'Aftale' : BA.statusLabel(car.status)) + '</span>' + adMenuHtml(car) + '<button class="btn" type="button" data-act="adcopy">Kopiér til AutoDesktop</button></div></div>';
   }
   /** Forløbet og låsen (views-flow.js): trinene vises kun, de kan ikke trykkes på. Man kommer videre med knappen, når alt er klaret. */
   function stepsHtml(car) { return BA.flowHtml ? BA.flowHtml(car) : ''; }
@@ -514,8 +571,13 @@
   }
 
   function openSale(car) {
-    var st = BA.S.settings;
-    var html = '<form novalidate><div class="field"><label for="sd-price">Salgspris (kr) *</label><input id="sd-price" inputmode="decimal" value="' + esc(car.listPrice != null ? U.num(car.listPrice) : '') + '" autocomplete="off"><div class="errtxt" id="sd-perr"></div></div>' +
+    var st = BA.S.settings, broker = BA.todo.isBroker(car.channel);
+    if (broker) {
+      var block = BA.todo.brokerSaleBlock(car, BA.S.items);
+      if (block) { BA.toast(block, { long: true }); return; }
+    }
+    var html = '<form novalidate>' + (broker ? '<div class="banner warn">Formidling: lav og få underskrevet “Slutseddel (formidling)”. Mindstepris: ' + esc(U.kr(BA.todo.brokerData(BA.S.items, car.id).minPrice)) + '.</div>' +
+      '<label class="check" id="sd-underwrap" hidden><input type="checkbox" id="sd-under"> Ejeren har skriftligt sagt ja til en pris under mindsteprisen</label>' : '') + '<div class="field"><label for="sd-price">Salgspris (kr) *</label><input id="sd-price" inputmode="decimal" value="' + esc(car.listPrice != null ? U.num(car.listPrice) : '') + '" autocomplete="off"><div class="errtxt" id="sd-perr"></div></div>' +
       '<div class="grid2"><div class="field"><label for="sd-date">Salgsdato</label><input id="sd-date" type="date" value="' + U.today() + '"></div>' +
       '<div class="field"><label for="sd-via">Salgskanal</label><input id="sd-via" list="sd-vias" maxlength="60" autocomplete="off"><datalist id="sd-vias">' + (st.salesChannels || []).map(function (s) { return '<option value="' + esc(s) + '">'; }).join('') + '</datalist></div></div>' +
       '<div class="grid2"><div class="field"><label for="sd-buyer">Køber</label><input id="sd-buyer" maxlength="100" autocomplete="off"></div><div class="field"><label for="sd-phone">Telefon</label><input id="sd-phone" inputmode="tel" maxlength="20" autocomplete="off"></div></div>' +
@@ -528,6 +590,11 @@
         if (price === null || price < 0) { err.textContent = 'Skriv salgsprisen.'; $('#sd-price', box).classList.add('invalid'); return; }
         var phone = $('#sd-phone', box).value.trim();
         if (phone && !/^[0-9+() \-]{3,20}$/.test(phone)) { err.textContent = 'Telefonnummeret ser forkert ud.'; return; }
+        if (broker && !BA.todo.brokerPriceOk(car, BA.S.items, price)) {
+          $('#sd-underwrap', box).hidden = false;
+          if (!$('#sd-under', box).checked) { err.textContent = 'Prisen er under ejerens mindstepris. Få ejerens skriftlige ja, og sæt kryds herover.'; return; }
+          BA.store.setTjek(car.id, 'krav', 'fm_underpris', 'ok', String(Math.floor(price)));   // sendes før salget (køen holder rækkefølgen)
+        }
         BA.store.markSold(car.id, { soldPrice: price, soldDate: $('#sd-date', box).value || U.today(), soldVia: $('#sd-via', box).value.trim(), buyer: $('#sd-buyer', box).value.trim(), buyerPhone: phone });
         close();
         BA.toast('Bilen er markeret som solgt.');
@@ -646,6 +713,7 @@
     if (BA.flowAct && BA.flowAct(act, car, el)) return;
     switch (act) {
       case 'sell': openSale(car); break;
+      case 'fm-edit': BA.brokerEdit(car); break;
       case 'ad-menu': {
         // Åbnes og lukkes direkte i siden (uden at tegne hovedet om, så fokus og tastatur ikke forstyrres)
         openFlags.admenu = !openFlags.admenu;

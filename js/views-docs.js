@@ -27,9 +27,11 @@
   // ---------------------------------------------------------------------------
   BA.docsCarSection = function (car) {
     var sold = BA.isSold(car.status);
-    var kinds = [['slut', 'Slutseddel'], ['engros', 'Engros-slutseddel'], ['fuld', 'Fuldmagt'], ['kore', 'Køreseddel']];
+    var broker = BA.todo.isBroker(car.channel);
+    var kinds = broker ? [['faftale', 'Formidlingsaftale'], ['fslut', 'Slutseddel (formidling)'], ['fafregn', 'Afregning til ejer'], ['fuld', 'Fuldmagt'], ['kore', 'Køreseddel']]
+      : [['slut', 'Slutseddel'], ['engros', 'Engros-slutseddel'], ['fuld', 'Fuldmagt'], ['kore', 'Køreseddel']];
     var h = '<div class="hd"><h2>Dokumenter og lister</h2></div>';
-    h += '<div class="btnrow">' + kinds.map(function (k) { return '<button type="button" class="btn small' + (sold && k[0] === 'slut' ? ' primary' : '') + '" data-act="doc-new" data-kind="' + k[0] + '">' + esc(k[1]) + '</button>'; }).join('') + '</div>';
+    h += '<div class="btnrow">' + kinds.map(function (k) { return '<button type="button" class="btn small' + (sold && (k[0] === 'slut' || k[0] === 'fslut') ? ' primary' : '') + '" data-act="doc-new" data-kind="' + k[0] + '">' + esc(k[1]) + '</button>'; }).join('') + '</div>';
     var pend = BA.store.pendingDocs ? BA.store.pendingDocs(car.id) : [];
     pend.forEach(function (p) {
       var label = (D().SPECS[p.kind] || {}).label || 'Dokument';
@@ -50,7 +52,7 @@
   function saleHtml(car) {
     var T = BA.todo;
     var h = '<div class="hd" style="margin-top:14px"><h2>Salgsforløb</h2></div>';
-    T.SALE_STEPS.forEach(function (s) {
+    T.saleSteps(car, itemsOf(car)).forEach(function (s) {
       var at = T.lastTick(BA.S.items, car.id, s[0]);
       h += '<div class="li' + (at ? ' done' : '') + '"><div class="main"><div class="t">' + (at ? '✓ ' : '') + esc(s[1]) + '</div>' + (at ? '<div class="m muted small">' + esc(U.fmtLocal(at)) + '</div>' : '') + '</div>' +
         (at ? '' : '<button type="button" class="btn small" data-act="sale-step" data-tick="' + esc(s[0]) + '">' + esc(s[2]) + '</button>') + '</div>';
@@ -232,6 +234,10 @@
   function openDoc(car, kind) {
     var spec = D().SPECS[kind];
     if (!spec || kind === 'bytte') return;
+    // Formidling: forkerte papirer er spærret, og de rigtige kræver, at aftalen er på plads (serveren tjekker det samme igen)
+    var block = BA.todo.brokerDocBlock(kind, car, itemsOf(car));
+    if (block) { BA.toast(block, { long: true }); return; }
+    var broker = BA.docs.isBrokerKind(kind);
     var key = 'ba.doc.' + car.id + '.' + kind;
     var saved = null;
     try { saved = JSON.parse(U.safeStore.get(key) || 'null'); } catch (e) { saved = null; }
@@ -242,7 +248,8 @@
     var vals = D().mergeRemembered(base, prev ? prev.v : {}, saved && typeof saved === 'object' ? saved : null);
     var carSnap = {}; D().CAR_KEYS.forEach(function (k) { if (k in base) carSnap[k] = base[k]; });
     var form = spec.groups.map(function (g) { return '<div class="docgrp"><h4>' + esc(g[0]) + '</h4><div class="grid2">' + g[1].map(function (f) { return fieldHtml(f, vals); }).join('') + '</div></div>'; }).join('');
-    var hint = kind === 'kore' ? 'Førerens navn, adresse, kørekort og klokkeslæt står som tomme linjer og udfyldes i hånden. Side 2 er tro- og loveerklæringen om vanvidskørsel.'
+    var hint = broker ? 'Ejerens oplysninger, mindstepris, salær og gæld hentes fra bilen (ret dem under “Formidling”). Udskriv, få underskrifter, og tag et billede af det underskrevne ind under Papirer.'
+      : kind === 'kore' ?'Førerens navn, adresse, kørekort og klokkeslæt står som tomme linjer og udfyldes i hånden. Side 2 er tro- og loveerklæringen om vanvidskørsel.'
       : kind === 'fuld' ? 'Køberens navn, CPR-/CVR-nr. og adresse står som tomme linjer og udfyldes i hånden (CPR-nummer gemmes aldrig i appen).'
       : 'Det, du ikke udfylder, står som tomme linjer til at skrive i hånden. Dokumentet bliver også liggende som PDF på bilen under Papirer.';
     var html = '<div class="docdlg"><div class="docform">' + form + '<p class="muted small" style="margin:0">' + esc(hint) + '</p>' +
@@ -264,11 +271,20 @@
       window.addEventListener('resize', onResize);
       function onResize() { if (!box.isConnected) { window.removeEventListener('resize', onResize); return; } scalePreview(box); }
       $('[data-close]', box).onclick = function () { saveDraft(); close(); };
+      // Formidling: det, der mangler eller ikke må stå, stoppes her – både ved udskrift og gem
+      function brokerStop() {
+        if (!broker) return false;
+        var err = $('#dv-err', box), now = BA.store.car(car.id) || car;
+        var msg = D().brokerProblem(kind, vals) || BA.todo.brokerDocBlock(kind, now, itemsOf(now), kind === 'fslut' ? D().pnum(vals.price) : undefined);
+        err.textContent = msg;
+        return !!msg;
+      }
       // Gem som PDF på bilen. printAfter (iPhone-app): vis bagefter et vindue med en Udskriv-knap, når PDF'en er klar.
       function savePdf(printAfter) {
         readAll();
         var c = D().clean(kind, vals), err = $('#dv-err', box);
         if (c.error) { err.textContent = c.error; return; }
+        if (brokerStop()) return;
         err.textContent = '';
         var modeEl = $('#dv-mode', box), replaceId = prev && modeEl && modeEl.value === 'replace' ? prev.fil.id : '';
         var newId = BA.store.makeDocument(car.id, kind, c.vals, replaceId);
@@ -278,7 +294,7 @@
         if (printAfter) pdfReadyDialog(car, newId, spec.label);
         else BA.toast('PDF’en laves nu. Den ligger under Papirer om et øjeblik.', { long: true });
       }
-      $('[data-print]', box).onclick = function () { if (iosApp()) { savePdf(true); return; } readAll(); BA.docsPrint(D().html(kind, vals)); };
+      $('[data-print]', box).onclick = function () { if (iosApp()) { savePdf(true); return; } readAll(); if (brokerStop()) return; BA.docsPrint(D().html(kind, vals)); };
       $('[data-save]', box).onclick = function () { savePdf(false); };
       // Lukkes dialogen på nogen måde (også Escape/tryk ved siden af): kladden gemmes, og ventende timere stoppes, så de ikke skriver en gammel kladde bagefter
       closer = function () { saveDraft(); finished = true; clearTimeout(tm); clearTimeout(saveTm); window.removeEventListener('resize', onResize); };
@@ -380,7 +396,9 @@
     var closer2 = null;
     var raw = saved && typeof saved.raw === 'string' ? saved.raw : '';
     var f = saved && saved.f ? saved.f : BA.ad.prefill(car, itemsOf(car), raw);
-    var html = '<div class="field"><label for="ad-raw">1. Indsæt teksten fra AutoDesktop (valgfrit)</label><textarea id="ad-raw" rows="4" placeholder="Kopiér beskrivelsen fra AutoDesktop og indsæt den her …">' + esc(raw) + '</textarea>' +
+    var isFm = BA.todo.isBroker(car.channel);
+    f.formidling = isFm;
+    var html = (isFm ? '<div class="banner warn">Formidling: linjen om formidlingssalg skal blive stående, og prisen skal være hele den pris, køber skal betale. Skriv ikke garanti eller “som beset”. Husk det samme i AutoDesktop, Bilinfo og på h-auto.dk.</div>' : '') + '<div class="field"><label for="ad-raw">1. Indsæt teksten fra AutoDesktop (valgfrit)</label><textarea id="ad-raw" rows="4" placeholder="Kopiér beskrivelsen fra AutoDesktop og indsæt den her …">' + esc(raw) + '</textarea>' +
       '<button type="button" class="btn small" id="ad-read" style="margin-top:6px">Læs teksten</button></div>' +
       '<div class="field"><label for="ad-out">2. Færdig annoncetekst</label><textarea id="ad-out" rows="12" spellcheck="false"></textarea></div>' +
       '<div class="actions" style="margin-top:0"><button type="button" class="btn" id="ad-newintro">🔄 Ny indledning</button><button type="button" class="btn primary" id="ad-copy">Kopiér annoncetekst</button></div>' +
@@ -413,6 +431,7 @@
       $('#ad-read', box).onclick = function () {
         var rawNow = $('#ad-raw', box).value;
         f = BA.ad.prefill(car, itemsOf(car), rawNow);
+        f.formidling = isFm;
         writeFields(); build(); save();
         BA.toast(rawNow.trim() ? 'Teksten er læst. Tjek felterne under “Ret felterne”.' : 'Annoncen er lavet ud fra bilens oplysninger.', { long: true });
       };

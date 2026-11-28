@@ -17,7 +17,7 @@
   var LS = { key: 'ba.key', server: 'ba.server', person: 'ba.person', cacheOld: 'ba.cache.v1', queue: 'ba.queue.v1', failed: 'ba.failed.v1', qperson: 'ba.queue.person' };
   var TIMEOUT_MS = 45000, UPLOAD_TIMEOUT_MS = 180000;
   /** Laveste serverversion, appen kan arbejde sammen med (Code.gs: SERVER_VERSION). */
-  var NEEDS_SERVER = 8;
+  var NEEDS_SERVER = 9;
   var FULL_EVERY_MS = 10 * 60 * 1000, OVERLAP_MS = 60000, MAX_SERVER_FAILS = 8;
 
   // ---------------------------------------------------------------------------
@@ -150,15 +150,23 @@
     var l = String(name || '').trim().toLowerCase();
     var list = (settings && settings.channels) || [];
     for (var i = 0; i < list.length; i++) if (list[i].name.toLowerCase() === l) return list[i];
+    if (BA.todo.isBroker(l)) return { name: BA.todo.BROKER_CHANNEL, transit: false, costs: [], dispute: false, dereg: false };   // indbygget: kræver intet i indstillingerne
     return null;
   }
   BA.findChannel = findChannel;
+  /** Kanalerne til rullemenuen: indstillingernes + Formidling (som altid findes). */
+  BA.channelNames = function (settings) {
+    var names = ((settings && settings.channels) || []).map(function (c) { return c.name; });
+    if (!names.some(function (n) { return BA.todo.isBroker(n); })) names.push(BA.todo.BROKER_CHANNEL);
+    return names;
+  };
 
   var CAR_BLANK = { listedDate: '', id: '', reg: '', model: '', variant: '', year: '', vin: '', fuel: '', color: '', firstReg: '', km: null, channel: '', boughtDate: '', buyPrice: null, listPrice: null, status: 'Købt',
     soldDate: '', soldPrice: null, soldVia: '', buyer: '', buyerPhone: '', notes: '', cover: '', motKm: null, motDate: '', nextInspection: '', folderId: '', extra: {}, createdAt: 0, createdBy: '', updatedAt: 0, updatedBy: '', rev: 1, deleted: false };
 
   var ITEM_DEFAULTS = {
     udstyr: { name: '', source: 'egen' }, fejl: { text: '', note: '', fixed: false, accepted: false },
+    formidling: { ownerName: '', ownerAddress: '', ownerCity: '', ownerPhone: '', ownerEmail: '', minPrice: null, fee: null, debt: null, until: '' },
     opgave: { text: '', who: '', expPrice: null, expHours: null, done: false, doneDate: '', actPrice: null, actHours: null, fromDefect: '', phase: '' },
     udgift: { date: '', desc: '', cat: '', amount: null, auto: '', defectId: '' }, time: { date: '', desc: '', cat: '', hours: null },
     reklamation: { date: '', desc: '', ctype: '', fix: '', kind: '', amount: null },
@@ -494,9 +502,18 @@
     list: 'Tjekliste', key: 'Punkt', state: 'Svar' };
   BA.store.fieldLabel = function (k) { return LABELS[k] || k; };
   var TYPE_NAMES = { udstyr: 'udstyr', fejl: 'fejl', opgave: 'opgave', udgift: 'udgift', time: 'timer', reklamation: 'reklamation', abonnement: 'fast udgift', enkeltudgift: 'enkeltudgift',
-    tick: 'afkrydsning', todo: 'egen opgave', booking: 'booking', tjek: 'tjekpunkt' };
+    tick: 'afkrydsning', todo: 'egen opgave', booking: 'booking', tjek: 'tjekpunkt', formidling: 'formidlingsoplysninger' };
   var TICK_NAMES = { charge: 'Ladet', pricecheck: 'Pris tjekket', regcert: 'Registreringsattest modtaget', dereg: 'Afmeldt / omregistreret', dispute: 'Tvist afklaret',
-    invoice: 'Faktura sendt', paid: 'Betalt', inspect: 'Synshal / indregistrering', pickup: 'Klar til afhentning' };
+    invoice: 'Faktura sendt', paid: 'Betalt', inspect: 'Synshal / indregistrering', pickup: 'Klar til afhentning',
+    fslut: 'Slutseddel underskrevet', payoff: 'Gælden indfriet', settle: 'Ejeren afregnet' };
+  /** Formidlingsoplysningerne på bilen (én post pr. bil, fast id): opret eller ret. */
+  BA.store.saveBroker = function (carId, data) {
+    var id = BA.docs.tjekId(carId, 'formidling', 'data');
+    if (maps.item[id] && !maps.item[id].deleted) return BA.store.updateItem(id, data);
+    var item = Object.assign(BA.itemDefaults('formidling'), data, { id: id, carId: carId, type: 'formidling', rev: 1, createdAt: now(), createdBy: person(), updatedAt: now(), updatedBy: person() });
+    enqueue('addItem', { id: id, carId: carId, type: 'formidling', data: data }, { k: 'item+', item: item });
+    return true;
+  };
   BA.store.tickName = function (k) { return TICK_NAMES[k] || k; };
   function shortVal(v) {
     if (v === null || v === undefined || v === '') return '(tom)';

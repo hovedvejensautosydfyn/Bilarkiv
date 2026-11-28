@@ -21,7 +21,7 @@ var TODO_ = (function () {
   var DEFAULTS = { priceCheckDays: [30, 45, 60], chargeHours: 48, morningHour: 8, bookingChecks: ['Vask bilen', 'Lad eller tank', 'Find nøglen', 'Prøveskilte (hvis afmeldt)', 'Prisskilt i forruden'] };
   var PREP_HOUR = 16;              // dagen før en booking: fra kl. 16 kommer klar-tjekket på listen
   var BOOKING_MINUTES = 60;        // en prøvetur regnes for en time (til kalenderen og til advarslen om overlap)
-  var TICK_KINDS = ['charge', 'pricecheck', 'regcert', 'dereg', 'dispute', 'invoice', 'paid', 'inspect', 'pickup'];
+  var TICK_KINDS = ['charge', 'pricecheck', 'regcert', 'dereg', 'dispute', 'invoice', 'paid', 'inspect', 'pickup', 'fslut', 'payoff', 'settle'];
   // Salgsforløbet efter salg (Fase 3): ét skridt ad gangen, til bilen er Udleveret. [afkrydsning, hvad skal gøres, knaptekst]
   var SALE_STEPS = [['invoice', 'Send faktura til køber', 'Faktura sendt'], ['paid', 'Vent på betalingen', 'Betalt'], ['inspect', 'Synshal / indregistrering i kundens navn', 'Gjort'], ['pickup', 'Gør bilen klar til afhentning', 'Klar til afhentning']];
   /** Tjeklisterne (DOCS_ i Apps Script, BA.docs i appen). */
@@ -31,6 +31,18 @@ var TODO_ = (function () {
       if (typeof window !== 'undefined' && window.BA && window.BA.docs) return window.BA.docs;
     } catch (e) { /* ingen tjeklister */ }
     return null;
+  }
+  /** Skridtene efter salget. Formidling har sine egne: gælden og afregningen til ejeren. */
+  function saleSteps(car, items) {
+    if (!isBroker(car && car.channel)) return SALE_STEPS;
+    var d = brokerData(items, car.id);
+    var out = [['fslut', 'Slutseddel (formidling) underskrevet af køber og ejer', 'Underskrevet'], ['paid', 'Vent på købers betaling', 'Betalt']];
+    if (Number(d.debt) > 0) out.push(['payoff', 'Indfri gælden i bilen', 'Indfriet']);
+    out.push(['inspect', 'Ejerskifte direkte fra ejer til køber', 'Gjort']);
+    out.push(['settle', 'Afregn ejeren (lav afregningen og overfør pengene)', 'Afregnet']);
+    if (Number(d.fee) > 0) out.push(['invoice', 'Send faktura på salæret til ejeren', 'Faktura sendt']);
+    out.push(['pickup', 'Gør bilen klar til afhentning', 'Klar til afhentning']);
+    return out;
   }
   var BOOKING_KINDS = ['Prøvetur', 'Fremvisning'];
   var GROUPS = ['Haster', 'I dag', 'Senere'];
@@ -50,6 +62,66 @@ var TODO_ = (function () {
   var STAGE_PATH = ['Købt', 'Ankommet', 'Klargøring', 'Annonceret', 'Solgt', 'Udleveret'];
   var MIN_PHOTOS = 10;             // billeder, før en bil kan sættes til salg (kan springes over med en begrundelse)
   function isTrade(chan) { return /^byttebil$/i.test(String(chan || '').trim()); }
+
+  // ---------------------------------------------------------------------------
+  // Formidling: bilen er IKKE din. En privat ejer er sælger, du formidler. Salget er et forbrugerkøb (købelovens § 4 a, stk. 2),
+  // så ejeren hæfter over for køber. Reglerne her er ens i appen og på serveren.
+  // ---------------------------------------------------------------------------
+  var BROKER_CHANNEL = 'Formidling';
+  function isBroker(chan) { return /^formidling$/i.test(String(chan || '').trim()); }
+  /** Bilens formidlingsoplysninger (ejer, mindstepris, salær, gæld) eller {}. */
+  function brokerData(items, carId) {
+    var best = null;
+    (items || []).forEach(function (it) {
+      if (it.type !== 'formidling' || it.deleted || it.carId !== carId) return;
+      if (!best || (it.updatedAt || 0) >= (best.updatedAt || 0)) best = it;
+    });
+    return best || {};
+  }
+  function hasNum(v) { return v !== null && v !== undefined && v !== '' && isFinite(Number(v)); }
+  function dataComplete(d) {
+    return !!(d.ownerName && d.ownerAddress && d.ownerCity && d.ownerPhone) && hasNum(d.minPrice) && Number(d.minPrice) > 0 && hasNum(d.fee) && hasNum(d.debt);
+  }
+  function confirmed(items, carId, key) { var k = kravItem(items, carId, key); return !!k && k.state === 'ok'; }
+  var BROKER_AGREEMENT = [
+    ['fm_data', 'ejer og pris', 'Ejer, mindstepris, salær og gæld er skrevet ind'],
+    ['fm_privat', 'ejeren tjekket', 'Ejeren er privatperson, ejer bilen, og du har set legitimation'],
+    ['fm_pant', 'Bilbogen', 'Bilbogen er tjekket for gæld i bilen'],
+    ['fm_aftale', 'underskrifter', 'Ejeren har underskrevet formidlingsaftalen OG ansvarserklæringen']
+  ];
+  /** Det af aftalen, der mangler: liste af korte navne (tom = alt er på plads). */
+  function brokerMissing(car, items) {
+    return BROKER_AGREEMENT.filter(function (r) {
+      return r[0] === 'fm_data' ? !dataComplete(brokerData(items, car.id)) : !confirmed(items, car.id, r[0]);
+    }).map(function (r) { return r[1]; });
+  }
+  /** Må bilen sælges til den pris? Under mindstepris kræver ejerens ja (tjek-posten fm_underpris med den laveste godkendte pris i noten). */
+  function brokerPriceOk(car, items, price) {
+    var d = brokerData(items, car.id);
+    if (!hasNum(d.minPrice) || Number(price) >= Number(d.minPrice)) return true;
+    var k = kravItem(items, car.id, 'fm_underpris');
+    return !!k && k.state === 'ok' && Number(k.note) > 0 && Number(price) >= Number(k.note);
+  }
+  /** Hvorfor må en formidlingsbil ikke markeres solgt? '' = den må godt. */
+  function brokerSaleBlock(car, items, price) {
+    var miss = brokerMissing(car, items);
+    if (miss.length) return 'Formidlingsbilen kan ikke sælges, før aftalen er på plads: ' + miss.join(', ') + '.';
+    if (price !== undefined && price !== null && !brokerPriceOk(car, items, price)) return 'Prisen er under ejerens mindstepris (' + fmtKr(brokerData(items, car.id).minPrice) + '). Få ejerens skriftlige ja først.';
+    return '';
+  }
+  var BROKER_DOCS = ['faftale', 'fslut', 'fafregn'];
+  var OWN_SALE_DOCS = ['slut', 'engros', 'bytte'];
+  /** Hvorfor må dette dokument ikke laves til bilen? '' = det må godt. price: salgsprisen på dokumentet (når den kendes). */
+  function brokerDocBlock(kind, car, items, price) {
+    var broker = isBroker(car.channel);
+    if (!broker) return BROKER_DOCS.indexOf(kind) >= 0 ? 'Det papir er kun til formidlingsbiler.' : '';
+    if (OWN_SALE_DOCS.indexOf(kind) >= 0) return 'Bilen er i formidling, og du er ikke sælger. Brug “Slutseddel (formidling)”.';
+    if (kind === 'faftale' && !dataComplete(brokerData(items, car.id))) return 'Skriv først ejer, mindstepris, salær og gæld ind på bilen (0 hvis der ikke er gæld).';
+    if (kind === 'fslut') return brokerSaleBlock(car, items, price);
+    if (kind === 'fafregn' && notSold(car)) return 'Afregningen laves, når bilen er markeret som solgt.';
+    return '';
+  }
+
   function stageOf(status) { return LEGACY_STAGE[status] || status; }
   function stageLabel(status) { var s = stageOf(status); return STAGE_LABELS[s] || s; }
 
@@ -139,7 +211,7 @@ var TODO_ = (function () {
     st = st || settingsOf({});
     var list = ARRIVAL_STATUSES.slice();
     // En byttebil er heller ikke din, før du har trykket Overtaget (du overtager den, når kunden henter sin bil)
-    if (!channelTransit(st, car.channel) && !isTrade(car.channel)) list.unshift('Købt');
+    if (!channelTransit(st, car.channel) && !isTrade(car.channel) && !isBroker(car.channel)) list.unshift('Købt');
     var best = 0;
     list.forEach(function (s) { var t = sa[s]; if (typeof t === 'number' && t > 0 && (!best || t < best)) best = t; });
     return best;
@@ -238,7 +310,7 @@ var TODO_ = (function () {
     if (!car) return '';
     var f = flow(car, ctx), miss = f.reqs.filter(function (r) { return !r.ok; }).map(function (r) { return r.short; });
     var tail = miss.length ? ' Mangler: ' + miss.slice(0, 4).join(', ') + (miss.length > 4 ? ' m.fl.' : '') + '.' : '';
-    if (f.stage === 'Købt') return isTrade(car.channel) ? 'Byttebilen er ikke overtaget endnu.' : 'Bilen er ikke kommet hjem endnu.';
+    if (f.stage === 'Købt') return isTrade(car.channel) ? 'Byttebilen er ikke overtaget endnu.' : isBroker(car.channel) ? 'Formidlingsaftalen er ikke på plads endnu.' + tail : 'Bilen er ikke kommet hjem endnu.';
     if (f.stage === 'Ankommet') return 'Bilen er ikke gennemgået endnu.' + tail;
     if (f.stage === 'Klargøring') return 'Bilen er ikke klargjort endnu.' + tail;
     if (f.stage === 'Solgt' || f.stage === 'Udleveret') return 'Bilen er allerede solgt.';
@@ -331,7 +403,26 @@ var TODO_ = (function () {
         skippable: o.skippable !== false && !o.manual, detail: o.detail || '', why: skipped ? String((k && k.note) || '') : '', action: o.action || null });
     }
 
-    if (stage === 'Købt') {
+    var broker = isBroker(chan);
+    if (broker && stage === 'Købt') out.label = 'Aftale';   // en formidlingsbil er ikke købt
+    // Aftalen med ejeren (formidling): alle fire punkter skal være på plads. Kan ikke springes over.
+    function addAgreement(onlyMissing) {
+      var d = brokerData(items, car.id);
+      BROKER_AGREEMENT.forEach(function (r) {
+        var isData = r[0] === 'fm_data', ok = isData ? dataComplete(d) : confirmed(items, car.id, r[0]);
+        if (onlyMissing && ok) return;
+        add(r[0], r[1], r[2], isData && ok, isData ? { skippable: false, action: { t: 'fm' } }
+          : { manual: true, action: r[0] === 'fm_aftale' ? { t: 'doc', kind: 'faftale' } : null });
+      });
+    }
+
+    if (stage === 'Købt' && broker) {
+      addAgreement(false);
+      out.next = { to: 'Ankommet', label: 'Aftale klar + bil modtaget' };
+      out.guide = ['Formidling: bilen er IKKE din. Ejeren er sælger, og du sælger for ejeren.',
+        'Fortæl ejeren, før der skrives under: køber har reklamationsret i 2 år, og det er EJEREN, der hæfter.',
+        'Underskriv aftalen her i forretningen (ellers har ejeren 14 dages fortrydelsesret).'];
+    } else if (stage === 'Købt') {
       var trade = isTrade(chan);
       out.next = { to: 'Ankommet', label: trade ? 'Overtaget' : 'Modtaget' };
       out.guide = trade
@@ -344,7 +435,9 @@ var TODO_ = (function () {
         { detail: g.done + ' af ' + g.total + (g.fejl ? ' · ' + g.fejl + ' fejl fundet' : '') + (finds.length ? ' · ' + finds.length + (finds.length === 1 ? ' fund mangler at blive til en fejl eller opgave' : ' fund mangler at blive til fejl eller opgaver') : ''), action: { t: 'checklist', list: 'gennemgang' } });
       out.next = { to: 'Klargøring', label: 'Gennemgået' };
       out.guide = ['Gå bilen igennem (ca. 1 time, med prøvetur). Tryk OK, Fejl eller Ikke relevant ved hvert punkt.', 'Et fund kan med ét tryk blive til en fejl/mangel eller en opgave.', 'Skriv ekstra ting, der skal laves før annoncering, i feltet herunder.'];
+      if (broker) out.guide.push('Formidling: skriv ALLE fejl ind. De skal stå på slutsedlen, og det beskytter ejeren.');
     } else if (stage === 'Klargøring') {
+      if (broker) addAgreement(true);
       if (channelFlag(st, chan, 'dispute') && arrivedAt(car, st)) {
         add('tvist', 'tvist-frist', 'Tvist-fristen er afklaret', lastTick(items, car.id, 'dispute') > 0, { action: { t: 'tick', tick: 'dispute', label: 'Afklaret' } });
       }
@@ -360,8 +453,15 @@ var TODO_ = (function () {
       add('udstyr', 'udstyr', 'Udstyr er skrevet ind', itemsOfCar(items, car.id, 'udstyr').length > 0, { action: { t: 'goto', id: 's-equip' } });
       var hasPrice = +car.listPrice > 0;
       add('pris', 'pris', 'Annonceret pris er sat', hasPrice, { skippable: false, action: { t: 'goto', id: 's-data' } });
-      if (hasPrice && typeof ctx.belowMin === 'function' && ctx.belowMin(car) === true) {
+      if (!broker && hasPrice && typeof ctx.belowMin === 'function' && ctx.belowMin(car) === true) {
         add('avance', 'avance', 'Avancen er under grænsen – jeg accepterer den', false, { manual: true, action: { t: 'goto', id: 's-econ' } });
+      }
+      if (broker) {
+        var min = brokerData(items, car.id).minPrice;
+        if (hasPrice && hasNum(min)) add('fm_pris', 'mindstepris', 'Prisen er ikke under ejerens mindstepris', +car.listPrice >= +min, { skippable: false, detail: 'Mindstepris ' + fmtKr(min), action: { t: 'goto', id: 's-data' } });
+        add('fm_test', 'testrapport', 'Testrapport eller synsrapport ligger på bilen (viser standen ved salget)',
+          itemsOfCar(items, car.id, 'fil').some(function (x) { return x.kind === 'Testrapport' || x.kind === 'Synsrapport'; }), { action: { t: 'goto', id: 's-docs' } });
+        add('fm_annonce', 'formidling i annoncen', 'Annoncen siger tydeligt “Formidlingssalg – sælges for privat ejer” og lover ingen garanti', false, { manual: true, action: { t: 'ad' } });
       }
       // Sættes kryds ved både Bilinfo og AutoDesktop i rullemenuen "Annonceret" øverst på bilen, er kravet klaret; ellers kan du bekræfte det her
       var onBi = adOn(items, car.id, 'bilinfo'), onAd = adOn(items, car.id, 'autodesktop');
@@ -371,14 +471,17 @@ var TODO_ = (function () {
     } else if (stage === 'Annonceret') {
       out.next = { to: 'Solgt', label: 'Markér som solgt', sale: true };
       out.guide = ['Bilen er til salg. Under “Hvis nogen spørger” står alt, du skal bruge til kunden.', 'Skal der laves noget, før bilen kan leveres? Skriv det i feltet herunder – bilen kan ikke markeres udleveret, før det er lavet.'];
+      if (broker) out.guide.push('Formidling: et bud under mindsteprisen kræver ejerens skriftlige ja. Sig aldrig, at der ingen reklamationsret er.');
     } else if (stage === 'Solgt') {
       add('levering', 'før levering', 'Alt, der skulle laves før levering, er lavet', out.levering.open.length === 0,
         { detail: out.levering.open.length ? out.levering.open.length + ' åbne' : '', action: { t: 'goto', id: 's-tasks' } });
-      SALE_STEPS.forEach(function (s) {
-        add('salg_' + s[0], s[1].toLowerCase(), s[1], lastTick(items, car.id, s[0]) > 0, { action: { t: 'tick', tick: s[0], label: s[2] } });
+      saleSteps(car, items).forEach(function (s) {
+        // Formidling: slutseddel, betaling, gæld, ejerskifte og afregning kan ikke springes over (det er ejerens penge og ansvar)
+        add('salg_' + s[0], s[1].toLowerCase(), s[1], lastTick(items, car.id, s[0]) > 0, { skippable: !(broker && ['fslut', 'paid', 'payoff', 'inspect', 'settle'].indexOf(s[0]) >= 0), action: { t: 'tick', tick: s[0], label: s[2] } });
       });
       out.next = { to: 'Udleveret', label: 'Udleveret' };
       out.guide = ['Bilen er solgt. Gå listen igennem, indtil den er udleveret.', 'Skriv ekstra ting, der skal laves før levering, i feltet herunder.'];
+      if (broker) out.guide = ['Solgt for ejeren. Papirerne står under “Dokumenter”: slutseddel (formidling) og afregning.', 'Først betales gælden i bilen, så får ejeren resten. Bilen skiftes direkte fra ejer til køber.'];
     }
 
     // Advarsler: de blokerer ikke, men skal ses. Registreringsattesten (kommer med UPS efter 2-7 dage).
@@ -394,7 +497,7 @@ var TODO_ = (function () {
       out.warnings.push({ key: 'tvist', text: 'Tvist-fristen (24 timer efter ankomst) er ikke afklaret endnu.', action: { t: 'tick', tick: 'dispute', label: 'Afklaret' } });
     }
     // Må en bil, der ikke er kommet endnu, markeres solgt? Ikke hvis kanalen har transport eller tvist-ur: så ville ankomsten (og tvist-uret) aldrig blive registreret.
-    out.sellEarly = stage === 'Ankommet' || stage === 'Klargøring' || (stage === 'Købt' && !channelTransit(st, chan) && !channelFlag(st, chan, 'dispute') && !isTrade(chan));
+    out.sellEarly = stage === 'Ankommet' || stage === 'Klargøring' || (stage === 'Købt' && !channelTransit(st, chan) && !channelFlag(st, chan, 'dispute') && !isTrade(chan) && !broker);
     out.open = out.reqs.filter(function (r) { return !r.ok; }).length;
     out.locked = out.open > 0;
     return out;
@@ -473,8 +576,8 @@ var TODO_ = (function () {
       var shorts = f.reqs.filter(function (r) { return !r.ok; }).map(function (r) { return r.short; });
       if (f.stage === 'Købt') {
         var bd2 = dayNum(c.boughtDate), td2 = dayNum(today), wait = bd2 !== null && td2 !== null ? Math.max(0, td2 - bd2) : 0;
-        add({ key: 'flow:' + c.id, kind: 'flow', prio: wait >= 7 && !isTrade(c.channel) ? 1 : 2, carId: c.id, text: isTrade(c.channel) ? label + ' (byttebil) overtages, når kunden henter sin bil – tryk ' + f.next.label + ', når du har den' : label + ' er købt – tryk ' + f.next.label + ', når den er her',
-          sub: wait > 0 ? 'Købt for ' + wait + (wait === 1 ? ' dag' : ' dage') + ' siden' : 'Købt i dag', at: bd2 !== null ? bd2 * DAY : NEVER, label: '', action: null });
+        add({ key: 'flow:' + c.id, kind: 'flow', prio: wait >= 7 && !isTrade(c.channel) ? 1 : 2, carId: c.id, text: isBroker(c.channel) ? label + ' (formidling): ' + (f.locked ? 'aftalen mangler ' + shorts.join(', ') : 'aftalen er klar – tryk ' + f.next.label) : isTrade(c.channel) ?label + ' (byttebil) overtages, når kunden henter sin bil – tryk ' + f.next.label + ', når du har den' : label + ' er købt – tryk ' + f.next.label + ', når den er her',
+          sub: isBroker(c.channel) ? '' : wait > 0 ? 'Købt for ' + wait + (wait === 1 ? ' dag' : ' dage') + ' siden' : 'Købt i dag',at: bd2 !== null ? bd2 * DAY : NEVER, label: '', action: null });
       } else if (f.stage === 'Ankommet') {
         var arr2 = arrivedAt(c, st), g = f.reqs[0];
         add({ key: 'flow:' + c.id, kind: 'flow', prio: !f.locked || (arr2 && now - arr2 >= DAY) ? 1 : 2, carId: c.id,
@@ -493,11 +596,11 @@ var TODO_ = (function () {
     // 5c. Salgsforløb (Fase 3): efter salget og til bilen er Udleveret – ét skridt ad gangen. Derefter: ting før levering, og så "tryk Udleveret".
     cars.forEach(function (c) {
       if (c.status !== 'Solgt') return;
-      var step = null;
-      for (var si = 0; si < SALE_STEPS.length; si++) { if (!last[c.id + '|' + SALE_STEPS[si][0]]) { step = SALE_STEPS[si]; break; } }
+      var step = null, steps = saleSteps(c, byCar[c.id] || []);
+      for (var si = 0; si < steps.length; si++) { if (!last[c.id + '|' + steps[si][0]]) { step = steps[si]; break; } }
       var at = (c.extra && c.extra.statusAt && c.extra.statusAt.Solgt) || NEVER;
       if (step) {
-        add({ key: 'sale:' + c.id, kind: 'sale', prio: 1, carId: c.id, text: 'Solgt – ' + carLabel(c) + ': ' + step[1], sub: 'Skridt ' + (si + 1) + ' af ' + SALE_STEPS.length,
+        add({ key: 'sale:' + c.id, kind: 'sale', prio: 1, carId: c.id, text: 'Solgt – ' + carLabel(c) + ': ' + step[1], sub: 'Skridt ' + (si + 1) + ' af ' + steps.length,
           at: at, label: step[2], action: { kind: 'tick', tick: step[0], carId: c.id } });
         return;
       }
@@ -569,7 +672,9 @@ var TODO_ = (function () {
   function count(list) { return (list || []).filter(function (e) { return e.prio <= 1; }).length; }
 
   return {
-    ORDER: ORDER, DEFAULTS: DEFAULTS, TICK_KINDS: TICK_KINDS, SALE_STEPS: SALE_STEPS, BOOKING_KINDS: BOOKING_KINDS, GROUPS: GROUPS,
+    ORDER: ORDER, DEFAULTS: DEFAULTS, TICK_KINDS: TICK_KINDS, SALE_STEPS: SALE_STEPS, saleSteps: saleSteps,
+    BROKER_CHANNEL: BROKER_CHANNEL, BROKER_DOCS: BROKER_DOCS, isBroker: isBroker, brokerData: brokerData, brokerMissing: brokerMissing,
+    brokerPriceOk: brokerPriceOk, brokerSaleBlock: brokerSaleBlock, brokerDocBlock: brokerDocBlock, BOOKING_KINDS: BOOKING_KINDS, GROUPS: GROUPS,
     compute: compute, count: count, chargeInfo: chargeInfo, bookings: bookings, lastTick: lastTick, settingsOf: settingsOf, channelFlag: channelFlag,
     carLabel: carLabel, fmtLeft: fmtLeft, fmtAgo: fmtAgo, fmtIso: fmtIso, dayNum: dayNum, addDaysIso: addDaysIso, bookingText: bookingText, bookingSub: bookingSub,
     onStock: onStock, arrivedAt: arrivedAt, channelTransit: channelTransit,

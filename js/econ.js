@@ -49,7 +49,7 @@
       if (c.boughtDate && c.boughtDate.slice(0, 7) === key) o.bought++;
       if (BA.isSold(c.status) && c.soldDate && c.soldDate.slice(0, 7) === key) {
         var r = calcs[c.id];
-        o.n++; o.rev += num(c.soldPrice); o.at += r.atSale || 0; o.cl += r.claims; o.cur += r.current || 0; o.h += r.hrs;
+        o.n++; o.rev += r.rev || 0; o.at += r.atSale || 0; o.cl += r.claims; o.cur += r.current || 0; o.h += r.hrs;
       }
     });
     ctx.items.forEach(function (it) {

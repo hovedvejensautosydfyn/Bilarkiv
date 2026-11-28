@@ -92,13 +92,16 @@
     var udstyr = udstyrOf(car), sorted = SG().suggestEquipment(udstyr), code = codeFor(car);
     var o = startOpts(car, udstyr), firm = BA.docs.FIRM, s = lastSign(car), made = null;
     var price = +car.listPrice || 0;
+    var broker = BA.todo.isBroker(car.channel);
+    if (broker) o = Object.assign(o, SG().forBroker(o));
     var html = '<div class="docdlg signdlg"><div class="docform">' +
+      (broker ? '<div class="banner warn">Formidling: skiltet siger altid “Sælges for privat ejer” og får ingen garanti.</div>' : '') +
       (price > 0 ? '<div class="signprice"><span class="muted small">Pris på skiltet</span><b>' + esc(SG().priceText(price)) + '</b><span class="muted small">Ret prisen på bilen (Annonceret pris), hvis den er forkert.</span></div>'
         : '<div class="banner warn">Bilen har ingen pris. Skriv prisen på bilen under <b>Annonceret pris</b> først.</div>') +
       (s && s.price ? '<p class="muted small" style="margin:6px 0 0">Sidste skilt: ' + esc(U.fmtLocal(s.at)) + ', ' + esc(SG().priceText(s.price)) + '</p>' : '') +
-      '<div class="docgrp"><h4>Mærke øverst</h4><div class="chips" role="group" aria-label="Mærke øverst" id="sg-label">' +
+      '<div class="docgrp"' + (broker ? ' hidden' : '') + '><h4>Mærke øverst</h4><div class="chips" role="group" aria-label="Mærke øverst" id="sg-label">' +
         ['', 'afhent', 'engros'].map(function (k) { return '<button type="button" class="chip big" data-label="' + k + '" aria-pressed="false">' + esc(SG().LABEL_NAMES[k]) + '</button>'; }).join('') + '</div></div>' +
-      '<div class="docgrp"><div class="grid2"><div class="field"><label for="sg-warranty">Garanti på bilen</label><input id="sg-warranty" maxlength="30" placeholder="fx 3 mdr." autocomplete="off" value="' + esc(o.warranty) + '"></div>' +
+      '<div class="docgrp"><div class="grid2"><div class="field"' + (broker ? ' hidden' : '') + '><label for="sg-warranty">Garanti på bilen</label><input id="sg-warranty" maxlength="30" placeholder="fx 3 mdr." autocomplete="off" value="' + esc(o.warranty) + '"></div>' +
         '<div class="field"><label for="sg-hk">HK (valgfrit)</label><input id="sg-hk" inputmode="numeric" maxlength="4" placeholder="fx 95" autocomplete="off" value="' + esc(o.hk) + '"></div></div>' +
         '<p class="muted small" style="margin:0">Tom garanti = intet garanti-mærke. Engros får aldrig garanti.</p></div>' +
       '<div class="docgrp"><h4>Fremhæv (tryk for at vælge)</h4><div class="chips" id="sg-badges"></div><p class="muted small" id="sg-bhint" style="margin:6px 0 0"></p></div>' +
@@ -139,7 +142,8 @@
       function current() {
         // Udstyret står i den rækkefølge, det har på listen (vigtigst først)
         var eq = sorted.filter(function (n) { return o.equipment.indexOf(n) >= 0; });
-        return SG().clean({ label: o.label, badges: o.badges, equipment: eq, warranty: o.warranty, hk: o.hk });
+        var sel = { label: o.label, badges: o.badges, equipment: eq, warranty: o.warranty, hk: o.hk };
+        return SG().clean(broker ? SG().forBroker(sel) : sel);
       }
       function render() {
         var c = current(), warn = $('#sg-warn', box);

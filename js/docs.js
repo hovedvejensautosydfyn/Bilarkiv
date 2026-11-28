@@ -54,9 +54,54 @@ var DOCS_ = (function () {
       ['Køretøj', VEH],
       ['Pris og betaling', [['price', 'Aftalt pris (kr.)'], ['payment', 'Betaling / modregning', 'text', 2], ['tradeAgainst', 'Modregnes i køb af bil (valgfri)', 'text', 2]]],
       ['Kendte fejl og aftaler', [['agreements', 'Fejl, mangler og aftaler', 'area']]],
-      ['Underskrift', [['date', 'Dato', 'date'], ['sellerName', 'Købers navn (Hovedvejens Auto)']]]] }
+      ['Underskrift', [['date', 'Dato', 'date'], ['sellerName', 'Købers navn (Hovedvejens Auto)']]]] },
+    // ---- Formidling: ejeren er sælger, vi formidler. Ejer, mindstepris, salær og gæld hentes altid fra bilen. ----
+    faftale: { label: 'Formidlingsaftale', type: 'Formidlingsaftale', groups: [
+      ['Køretøj', VEH],
+      ['Aftalen', [['until', 'Aftalen gælder til', 'date'], ['payoutDays', 'Afregning senest (bankdage)'], ['noticeDays', 'Opsigelsesvarsel (dage)'], ['costTerms', 'Udgifter (klargøring, annoncering, reparation)', 'area']]],
+      ['Kendte fejl, som ejeren har oplyst', [['agreements', 'Fejl og mangler (skriv “Ingen kendte”, hvis der ingen er)', 'area']]],
+      ['Underskrift', [['date', 'Dato', 'date'], ['sellerName', 'Dit navn']]]] },
+    fslut: { label: 'Slutseddel (formidling)', type: 'Slutseddel', groups: [
+      ['Køretøj', VEH],
+      ['Køber', BUYER_PRIVATE],
+      ['Pris og betaling', [['price', 'Købspris (kr.)'], ['payment', 'Betaling'], ['delivery', 'Leveringsdato', 'date']]],
+      ['Kendte fejl og aftaler', [['agreements', 'Alle kendte fejl, konkret (skriv “Ingen kendte”, hvis der ingen er)', 'area']]],
+      ['Underskrift', [['date', 'Dato', 'date'], ['sellerName', 'Dit navn']]]] },
+    fafregn: { label: 'Afregning til ejeren', type: 'Afregning', groups: [
+      ['Køretøj', [['reg', 'Reg.nr.'], ['vin', 'Stelnummer'], ['model', 'Mærke/model', 'text', 2]]],
+      ['Penge', [['price', 'Salgspris (kr.)'], ['otherCosts', 'Andre aftalte udgifter (kr.)'], ['otherText', 'Hvad er de andre udgifter?', 'text', 2]]],
+      ['Underskrift', [['date', 'Dato', 'date'], ['sellerName', 'Dit navn']]]] }
   };
-  var KINDS = ['slut', 'engros', 'fuld', 'kore', 'bytte'];
+  var KINDS = ['slut', 'engros', 'fuld', 'kore', 'bytte', 'faftale', 'fslut', 'fafregn'];
+  var BROKER_KEYS = ['ownerName', 'ownerAddress', 'ownerCity', 'ownerPhone', 'ownerEmail', 'minPrice', 'fee', 'debt'];
+  function isBrokerKind(kind) { return kind === 'faftale' || kind === 'fslut' || kind === 'fafregn'; }
+  /** Lægger bilens formidlingsoplysninger i dokumentets værdier (overskriver altid). data = formidlings-posten. */
+  function applyBroker(vals, data) {
+    var d = data || {};
+    BROKER_KEYS.forEach(function (k) {
+      var v = d[k];
+      if (v === null || v === undefined) v = '';
+      vals[k] = (k === 'minPrice' || k === 'fee' || k === 'debt') && v !== '' ? nfmt(Number(v)) : String(v);
+    });
+    return vals;
+  }
+  /** Mangler der noget, før papiret må laves? Giver en tekst, eller ''. */
+  function brokerProblem(kind, v) {
+    if (!isBrokerKind(kind)) return '';
+    if (!v.ownerName || !v.ownerAddress) return 'Ejerens navn og adresse mangler på bilen.';
+    var faults = String(v.agreements || '');
+    if (kind !== 'fafregn') {
+      if (!faults.trim()) return 'Skriv alle kendte fejl, eller skriv “Ingen kendte”.';
+      if (/som\s+beset|uden\s+(reklamation|ansvar)|reklamationsret\w*\s+(bortfalder|frafald|fraskriv)|ingen\s+reklamation/i.test(faults + ' ' + String(v.costTerms || ''))) return 'Du må ikke skrive “som beset” eller fraskrive reklamationsretten ved formidling. Fjern teksten, og skriv de konkrete fejl i stedet.';
+      if (/\bgaranti/i.test(faults)) return 'Lov ikke garanti på et formidlingssalg – så kan du selv komme til at hæfte.';
+    }
+    if (kind === 'fslut') {
+      if (!v.buyerName || !v.buyerAddress || !v.buyerCity) return 'Skriv købers navn, adresse og postnr./by.';
+      if (!(pnum(v.price) > 0)) return 'Skriv købsprisen.';
+    }
+    if (kind === 'fafregn' && !(pnum(v.price) > 0)) return 'Skriv salgsprisen.';
+    return '';
+  }
   var SIG_KEYS = ['sigCust', 'sigBuyer'];
 
   function fieldList(kind) {
@@ -99,6 +144,16 @@ var DOCS_ = (function () {
     var seller = st.sellerName || '';
     var defects = (items || []).filter(function (i) { return i.type === 'fejl' && !i.fixed && !i.deleted; }).map(function (i) { return i.text; }).join('\n');   // kun fejl-teksten: den interne note er til Oliver og kommer ikke automatisk på kundens papir
     var name = [car.model, car.year].filter(Boolean).join(' ');
+    if (isBrokerKind(kind)) {
+      var fm = (items || []).filter(function (i) { return i.type === 'formidling' && !i.deleted; })[0] || {};
+      var veh = { reg: car.reg || '', vin: car.vin || '', model: car.model || '', variant: car.variant || '', firstReg: regDate(car), km: km == null ? '' : nfmt(km), fuel: car.fuel || '', date: today, sellerName: seller };
+      var base;
+      if (kind === 'faftale') base = Object.assign(veh, { until: fm.until || '', payoutDays: '5', noticeDays: '7', costTerms: 'Udgifter afholdes kun efter aftale med ejeren.', agreements: defects });
+      else if (kind === 'fslut') base = Object.assign(veh, { price: price == null ? '' : nfmt(price), payment: 'Bankoverførsel til formidleren på sælgers vegne', delivery: car.soldDate || today, agreements: defects, date: car.soldDate || today,
+        buyerName: car.buyer || '', buyerAddress: '', buyerCity: '', buyerPhone: car.buyerPhone || '', buyerEmail: '' });
+      else base = { reg: veh.reg, vin: veh.vin, model: veh.model, price: price == null ? '' : nfmt(price), otherCosts: '', otherText: '', date: today, sellerName: seller };
+      return applyBroker(base, fm);
+    }
     if (kind === 'kore') return { model: name, reg: car.reg || '', vin: car.vin || '', plate: PLATE, date: today, sellerName: seller };
     if (kind === 'fuld') return { reg: car.reg || '', vin: car.vin || '', model: car.model || '', variant: car.variant || '', firstReg: regDate(car), insurer: '', policy: '', date: car.soldDate || today };
     var common = { reg: car.reg || '', vin: car.vin || '', model: car.model || '', variant: car.variant || '', firstReg: regDate(car), km: km == null ? '' : nfmt(km), fuel: car.fuel || '',
@@ -135,6 +190,7 @@ var DOCS_ = (function () {
       out[k] = v;
     });
     if (bad) return { error: bad };
+    if (isBrokerKind(kind)) BROKER_KEYS.forEach(function (k) { out[k] = String(vals[k] == null ? '' : vals[k]).replace(/\s+/g, ' ').trim().slice(0, MAX_SHORT); });
     if (kind === 'bytte') {
       SIG_KEYS.forEach(function (k) {
         var v = vals[k];
@@ -151,7 +207,7 @@ var DOCS_ = (function () {
    * Felter, der kommer fra BILEN (bilen er sandheden, som i det gamle program): de gemmes ikke til næste dokument og hentes aldrig fra et gammelt dokument
    * eller en gammel kladde. Rettes bilens reg.nr., km eller pris, får det næste dokument de nye værdier.
    */
-  var CAR_KEYS = ['reg', 'vin', 'model', 'variant', 'firstReg', 'km', 'fuel', 'price', 'delivery', 'date'];
+  var CAR_KEYS = ['reg', 'vin', 'model', 'variant', 'firstReg', 'km', 'fuel', 'price', 'delivery', 'date', 'ownerName', 'ownerAddress', 'ownerCity', 'ownerPhone', 'ownerEmail', 'minPrice', 'fee', 'debt'];
   /** Det, der gemmes på bilen til næste gang: alt undtagen underskrifter og bilens egne felter. */
   function storable(vals) {
     var o = {};
@@ -181,7 +237,7 @@ var DOCS_ = (function () {
     var reg = String((vals && vals.reg) || (car && car.reg) || '').toUpperCase().replace(/\s/g, '');
     var date = (vals && vals.date) || today || '';
     var who = reg || (vals && vals.model) || (car && car.model) || '';
-    var base = { slut: 'Slutseddel ', engros: 'Slutseddel engros ', fuld: 'Fuldmagt ', kore: 'Køreseddel ', bytte: 'Købsaftale byttebil ' }[kind] || 'Dokument ';
+    var base = { slut: 'Slutseddel ', engros: 'Slutseddel engros ', fuld: 'Fuldmagt ', kore: 'Køreseddel ', bytte: 'Købsaftale byttebil ', faftale: 'Formidlingsaftale ', fslut: 'Slutseddel formidling ', fafregn: 'Afregning ' }[kind] || 'Dokument ';
     return safeName(base + who + ' ' + date).slice(0, 100) + '.pdf';
   }
 
@@ -278,8 +334,83 @@ var DOCS_ = (function () {
         '<table class="sigs"><tr><td>' + LN('') + '<div class="s"><b>Fuldmagtsgiver</b> (køber)<br>' + esc(cityOnly) + ', ' + (date('date') || blank(14)) + '</div></td><td class="gp"></td><td>' + LN('') + '<div class="s"><b>Bruger</b> (kun hvis en anden end ejer)<br>Dato: ' + blank(14) + '</div></td></tr></table>' + foot);
     }
 
+    if (isBrokerKind(kind)) {
+      var firmHead = top('<b>' + esc(FIRM.name) + '</b><br>' + esc(FIRM.street) + ', ' + esc(FIRM.city) + '<br>CVR ' + esc(FIRM.cvr) + ' · Tlf. ' + esc(FIRM.phone));
+      var title = function (cap, h1, sub) { return '<div class="title"><div class="cap">' + cap + '</div><h1 class="sm">' + h1 + '</h1><div class="sub">' + sub + '</div></div>'; };
+      var ownerRows = [row('Navn', e('ownerName')), row('Adresse', e('ownerAddress')), row('Postnr./by', e('ownerCity')), row('Tlf.', e('ownerPhone')), row('E-mail', e('ownerEmail'))];
+      var brokerRows = [row('Firma', esc(FIRM.name)), row('CVR', esc(FIRM.cvr)), row('Adresse', esc(FIRM.street + ', ' + FIRM.city)), row('Tlf.', esc(FIRM.phone)), row('E-mail', esc(FIRM.email))];
+      var car2 = function () {
+        return two(fl([row('Mærke/model', e('model')), row('Reg.nr.', e('reg')), row('Stelnr.', e('vin'))]),
+          fl([row('Variant', e('variant')), row('1. reg.', e('firstReg')), row('Km', e('km') ? e('km') + (/^[\d.]+$/.test(e('km')) ? ' km' : '') : ''), row('Brændstof', e('fuel'))]));
+      };
+      var kr = function (k) { return e(k) ? money(k) : ''; };
+      var faults = function () { return fl([row('', multi('agreements') || '&nbsp;'), row('', '&nbsp;')], 'w'); };
+      var sigPair = function (a, b) { return '<table class="sigs"><tr><td>' + LN('') + '<div class="s">' + a + '</div></td><td class="gp"></td><td>' + LN('') + '<div class="s">' + b + '</div></td></tr></table>'; };
+      var li = function (list) { return '<ol class="terms">' + list.map(function (t) { return '<li>' + t + '</li>'; }).join('') + '</ol>'; };
+      var firmSig = '<b>Formidler</b> · ' + esc(FIRM.name) + (e('sellerName') ? ' v/ ' + e('sellerName') : '') + '<br>' + esc(cityOnly) + ', ' + (date('date') || blank(14));
+
+      if (kind === 'faftale') {
+        return doc(firmHead + title('Aftale', 'Formidlingsaftale', 'Privat ejer sælger bilen gennem forhandler') +
+          cards('Ejer (sælger)', ownerRows, 'Formidler', brokerRows) +
+          sec('Køretøjet', car2()) +
+          sec('Pris, salær og periode', two(fl([row('Mindstepris', kr('minPrice')), row('Salær inkl. moms', kr('fee')), row('Gæld i bilen', kr('debt'))]), fl([row('Gælder til', date('until')), row('Opsigelsesvarsel', e('noticeDays') + ' dage'), row('Afregning senest', e('payoutDays') + ' bankdage')]))) +
+          sec('Kendte fejl, som ejeren har oplyst', faults()) +
+          sec('Vilkår', li([
+            'Formidleren sælger bilen på ejerens vegne og for ejerens regning. Ejeren er sælger. Formidleren køber ikke bilen.',
+            'Ejeren giver formidleren fuldmagt til at forhandle og indgå salget på ejerens vegne og til at modtage købesummen. Formidleren repræsenterer kun ejeren og får intet salær af køber.',
+            'Bilen må ikke sælges under mindsteprisen uden ejerens skriftlige accept.',
+            'Af købesummen indfries først gæld i bilen. Derefter fratrækkes salær og aftalte udgifter, og resten overføres til ejeren inden for den nævnte frist efter betaling og ejerskifte.',
+            multi('costTerms') || 'Udgifter afholdes kun efter aftale med ejeren.',
+            'Ejeren erklærer at være privatperson, at eje bilen og have ret til at sælge den, og at have oplyst alle kendte fejl, skader og al gæld.',
+            'Ejeren beholder sin forsikring, indtil bilen er omregistreret, og har spurgt sit selskab, om prøveture med mulige købere er dækket.',
+            'Hver part kan opsige aftalen skriftligt med det nævnte varsel.',
+            'Aftalen er forudsat underskrevet i formidlerens forretning. Indgås den andre steder eller på afstand, har ejeren som udgangspunkt 14 dages fortrydelsesret og skal have skriftlig oplysning om den.'])) +
+          sigPair('<b>Ejer</b> · ' + (e('ownerName') || '&nbsp;') + '<br>Dato: ' + blank(14), firmSig) +
+          '<div style="page-break-before:always"></div>' + firmHead + title('Bilag til formidlingsaftalen', 'Ejerens ansvar over for køber', e('model') + (e('reg') ? ' · ' + e('reg') : '')) +
+          '<div class="decl"><p>Jeg bekræfter at have læst og forstået dette, <b>før</b> jeg underskrev formidlingsaftalen:</p></div>' +
+          li([
+            'Fordi salget formidles af en erhvervsdrivende, er det et <b>forbrugerkøb</b>, når køber hovedsageligt handler privat (købelovens § 4 a, stk. 2). Det gælder, selv om jeg er privatperson.',
+            '<b>Jeg er sælger, og det er mig, der hæfter</b> over for køber for mangler. Formidleren er ikke sælger.',
+            'Køber har som udgangspunkt reklamationsret i 2 år efter leveringen. Fristen kan blive forlænget, hvis en mangel udbedres ved reparation.',
+            'Viser en mangel sig inden for 1 år efter leveringen, formodes den at have været der ved leveringen, medmindre det modsatte bevises.',
+            'Reklamationsretten kan ikke fraskrives. “Købt som beset” hjælper ikke.',
+            'Det, formidleren ved eller burde vide om bilen, regnes som min viden. Jeg skal derfor oplyse alt, jeg kender til.',
+            'Køber kan aflevere sin reklamation hos formidleren, og den gælder så over for mig.']) +
+          sigPair('<b>Ejer</b> · ' + (e('ownerName') || '&nbsp;') + '<br>Dato: ' + blank(14), firmSig) +
+          '<p class="note">Vilkårene er et udkast og bør godkendes af en jurist før brug.</p>' + foot);
+      }
+
+      if (kind === 'fslut') {
+        var buyer = [row('Navn', e('buyerName')), row('Adresse', e('buyerAddress')), row('Postnr./by', e('buyerCity')), row('Tlf.', e('buyerPhone')), row('E-mail', e('buyerEmail'))];
+        return doc(firmHead + title('Formidlingssalg', 'Slutseddel', 'Privat ejer sælger · ' + esc(FIRM.name) + ' formidler') +
+          cards('Sælger (privat ejer)', ownerRows, 'Køber', buyer) +
+          '<p class="note"><b>Formidler:</b> ' + esc(FIRM.name) + ', CVR ' + esc(FIRM.cvr) + ', ' + esc(FIRM.street + ', ' + FIRM.city) + '. Formidleren handler på sælgers vegne efter fuldmagt og er ikke sælger.</p>' +
+          sec('Køretøjet', car2()) +
+          sec('Købesum og betaling', two(fl([row('Købspris', money('price')), row('Betaling', e('payment'))]), fl([row('Levering', date('delivery')), row('Gæld i bilen, der indfries', pnum(v.debt) > 0 ? kr('debt') : 'Ingen oplyst')]))) +
+          sec('Kendte fejl, mangler og aftaler', faults()) +
+          sec('Vilkår', li([
+            'Aftalen er indgået mellem sælger og køber. Formidleren er ikke part i købet.',
+            'Salget er formidlet af en erhvervsdrivende og er derfor et forbrugerkøb, når køber hovedsageligt handler privat (købelovens § 4 a, stk. 2). Køber har købelovens rettigheder, herunder reklamationsret.',
+            'Krav om mangler rettes mod sælger. Reklamation kan også afleveres hos formidleren.',
+            'Fejlene nævnt ovenfor er oplyst før købet.',
+            'Betaling til formidleren på sælgers vegne frigør køber. Gæld i bilen indfries af købesummen.',
+            'Ejendomsretten overgår ved fuld betaling. Bilen omregistreres direkte fra sælger til køber.'])) +
+          '<div class="info"><b>Købers bekræftelse:</b> Jeg har forstået, at jeg køber af en privat person, og at ' + esc(FIRM.name) + ' kun formidler salget. Jeg har læst fejlene ovenfor.</div>' +
+          '<table class="sig3"><tr><td>' + LN('') + '<div class="s">Sælger (eller formidler efter fuldmagt)</div></td><td class="gp"></td><td>' + LN(date('date')) + '<div class="s">Dato</div></td><td class="gp"></td><td>' + LN('') + '<div class="s">Køber</div></td></tr></table>' + foot);
+      }
+
+      var price2 = pnum(v.price) || 0, debt2 = pnum(v.debt) || 0, fee2 = pnum(v.fee) || 0, other = pnum(v.otherCosts) || 0, rest = price2 - debt2 - fee2 - other;
+      return doc(firmHead + title('Formidlingssalg', 'Afregning', 'Opgørelse til ejeren') +
+        cards('Ejer (sælger)', ownerRows, 'Formidler', brokerRows) +
+        sec('Køretøjet', fl([row('Mærke/model', e('model')), row('Reg.nr.', e('reg')), row('Stelnr.', e('vin'))])) +
+        sec('Afregning', fl([row('Salgspris', nfmt(price2) + ' kr.'), row('Gæld i bilen, indfriet', '- ' + nfmt(debt2) + ' kr.'), row('Salær inkl. moms (heraf moms ' + nfmt(fee2 * 0.2) + ' kr.)', '- ' + nfmt(fee2) + ' kr.'),
+          row(e('otherText') || 'Andre aftalte udgifter', '- ' + nfmt(other) + ' kr.'), row('<b>Til udbetaling til ejeren</b>', '<b>' + nfmt(rest) + ' kr.</b>')])) +
+        '<p class="note">Salæret faktureres særskilt. Bilsalget er ejerens salg og ikke en del af formidlerens omsætning.</p>' +
+        sigPair('<b>Ejer</b> har modtaget opgørelsen<br>Dato: ' + blank(14), firmSig) + foot);
+    }
+
     if (kind === 'bytte') {
-      var vehRows = [row('Mærke/model', e('model')), row('Reg.nr.', e('reg')), row('Stelnr.', e('vin'))];
+      var vehRows =[row('Mærke/model', e('model')), row('Reg.nr.', e('reg')), row('Stelnr.', e('vin'))];
       var vehRows2 = [row('Variant', e('variant')), row('1. reg.', e('firstReg')), row('Km', e('km') ? e('km') + (/^[\d.]+$/.test(e('km')) ? ' km' : '') : ''), row('Brændstof', e('fuel'))];
       var h = top('<b>' + esc(FIRM.name) + '</b><br>' + esc(FIRM.street) + ', ' + esc(FIRM.city) + '<br>CVR ' + esc(FIRM.cvr) + ' · Tlf. ' + esc(FIRM.phone)) +
         '<div class="title"><div class="cap">Købsaftale</div><h1>Slutseddel</h1><div class="sub">Køb af brugt bil fra privat (byttebil)</div></div>' +
@@ -448,7 +579,7 @@ var DOCS_ = (function () {
   return {
     CAR_KEYS: CAR_KEYS, mergeRemembered: mergeRemembered, FIRM: FIRM, VAT_OPT: VAT_OPT, SPECS: SPECS, KINDS: KINDS, SIG_KEYS: SIG_KEYS, MAX_SIG: MAX_SIG, LISTS: LISTS, STATES: STATES,
     fieldList: fieldList, defaults: defaults, clean: clean, storable: storable, fileName: fileName, html: html, esc: esc, fmtDate: fmtDate, pnum: pnum, nfmt: nfmt, sigOk: sigOk,
-    listItems: listItems, listSize: listSize, tjekId: tjekId, progress: progress
+    listItems: listItems, listSize: listSize, tjekId: tjekId, progress: progress, applyBroker: applyBroker, brokerProblem: brokerProblem, isBrokerKind: isBrokerKind
   };
 })();
 if (typeof window !== 'undefined' && window.BA) window.BA.docs = DOCS_;

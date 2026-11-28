@@ -159,7 +159,7 @@
     if (BA.stage(status) === 'Annonceret') return 'acc';
     return '';
   };
-  BA.DOC_KINDS = ['Slutseddel', 'Byttebil-slutseddel', 'Køreseddel', 'Fuldmagt', 'Købsfaktura', 'Registreringsattest', 'Synsrapport', 'Servicebog', 'Værkstedsfaktura', 'Prisskilt', 'Andet'];
+  BA.DOC_KINDS = ['Slutseddel', 'Byttebil-slutseddel', 'Køreseddel', 'Fuldmagt', 'Købsfaktura', 'Registreringsattest', 'Synsrapport', 'Servicebog', 'Værkstedsfaktura', 'Prisskilt', 'Andet', 'Formidlingsaftale', 'Afregning', 'Testrapport'];
   BA.MAX_PROFIT_HINT = 20000;
 
   // ---------- beregninger (som calc() i det gamle Bilarkiv) ----------
@@ -179,11 +179,22 @@
     var claims = U.sum(claimsList, 'amount');
     var disc = U.sum(claimsList.filter(function (c) { return c.kind === 'Afslag i pris'; }), 'amount');
     var vatRate = st && st.vat != null ? st.vat : 0.2;
+    // Formidling: bilen er ikke vores. Indtægten er salæret (inkl. moms). Samme regel som calcCar i serverens Logic.gs.
+    var broker = BA.todo.isBroker(car.channel);
+    var fee = broker ? U.pnum(BA.todo.brokerData(mine, car.id).fee) || 0 : 0;
+    if (broker) { buy = 0; disc = 0; }
     var cost = buy + exp;
     var sp = U.pnum(car.soldPrice), lp = U.pnum(car.listPrice);
     var sold = BA.isSold(car.status) && sp != null;
-    var r = { buy: buy, exp: exp, extra: extra, hrs: hrs, cost: cost, claims: claims, disc: disc, sold: sold, vatBack: 0 };
-    if (sold) {
+    var r = { buy: buy, exp: exp, extra: extra, hrs: hrs, cost: cost, claims: claims, disc: disc, sold: sold, vatBack: 0, broker: broker, fee: fee, rev: broker ? (sold ? fee : 0) : (sold ? sp : 0) };
+    if (broker) {
+      var feeVat = fee * vatRate;
+      if (sold) {
+        r.gross = fee - cost; r.vatSale = feeVat; r.vat = feeVat; r.atSale = r.gross - feeVat; r.current = r.atSale - claims; r.base = r.current;
+      } else {
+        r.expBefore = fee - cost - extra; r.expVat = feeVat; r.expected = r.expBefore - feeVat; r.base = r.expected;
+      }
+    } else if (sold) {
       r.gross = sp - cost;
       r.vatSale = Math.max(0, sp - buy) * vatRate;
       r.vat = Math.max(0, sp - disc - buy) * vatRate;
@@ -215,6 +226,7 @@
     if (r.sold || r.expected == null) return '';
     var min = st && st.minProfit != null ? st.minProfit : BA.MAX_PROFIT_HINT;
     if (r.expected < 0) return 'bad';
+    if (r.broker) return 'ok';   // grænsen på 20.000 kr gælder egne biler, ikke et salær
     return r.expBefore < min ? 'warn' : 'ok';
   };
 
@@ -225,6 +237,7 @@
     var min = st && st.minProfit != null ? st.minProfit : BA.MAX_PROFIT_HINT;
     var both = U.kr(r.expBefore) + ' før og ' + U.kr(r.expected) + ' efter brugtmoms';
     var level = BA.profitLevel(r, st);
+    if (r.broker) return level === 'bad' ? { cls: 'bad', text: 'Udgifterne er større end salæret (' + U.kr(r.expected) + ' efter moms).' } : { cls: 'ok', text: 'Formidling: ' + U.kr(r.expected) + ' til dig efter udgifter og moms af salæret.' };
     if (level === 'bad') return { cls: 'bad', text: 'Bilen giver underskud ved den annoncerede pris (' + both + ').' };
     if (level === 'warn') return { cls: 'warn', text: 'Forventet avance før brugtmoms er under ' + U.kr(min) + ' (' + both + '). Overvej prisen eller omkostningerne.' };
     return { cls: 'ok', text: 'Ser fornuftig ud: forventet avance ' + both + '.' };
@@ -241,6 +254,7 @@
       ['Reg.nr.', car.reg], ['Pris', car.listPrice != null ? U.fmtN(car.listPrice) : ''],
       ['Udstyr', equip.join(', ')], ['Fejl og mangler', defects.join('; ')], ['Noter', car.notes]
     ];
+    if (BA.todo.isBroker(car.channel)) list.unshift(['Salgstype', 'Formidlingssalg – sælges for privat ejer']);
     return list.map(function (x) {
       var f = { label: x[0], value: x[1] == null ? '' : String(x[1]) };
       if (x[0] === 'Udstyr') f.list = equip;   // hver enkelt udstyrslinje kan kopieres for sig
